@@ -53,7 +53,8 @@ st.markdown("""
 st.title("🔥 Альтавіста — Кабінет спостереження")
 st.caption("Спостереження за методологією у живих діалогах")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість", "⚙️ Методологія"])
 
 # ============ ОГЛЯД ============
 with tab1:
@@ -211,3 +212,74 @@ with tab4:
         FROM messages WHERE state IS NOT NULL GROUP BY 1""")
     if not by_state.empty:
         st.dataframe(by_state, use_container_width=True, hide_index=True)
+
+# ============ МЕТОДОЛОГІЯ (Ольга редагує промпти) ============
+with tab5:
+    st.subheader("⚙️ Лабораторія методології")
+    st.caption("Тут ви редагуєте промпти Провідника. Зберегли → бот одразу "
+               "відповідає по-новому. Тестуйте в Telegram без перезапуску.")
+
+    def get_conn_w():
+        dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL","")
+        if dsn.startswith("postgres://"):
+            dsn = dsn.replace("postgres://","postgresql://",1)
+        return psycopg2.connect(dsn, sslmode="require")
+
+    # перевірка чи є таблиця
+    try:
+        meth = q("SELECT state_key, title, system_prompt, sample_phrases, updated_at, updated_by FROM methodology ORDER BY state_key")
+        has_table = True
+    except Exception:
+        has_table = False
+
+    if not has_table:
+        st.warning("Таблиця методології ще не створена. "
+                   "Розробнику: запустити `python -m db.migrate_methodology`.")
+    elif meth.empty:
+        st.info("Методологія порожня. Запустіть міграцію з YAML.")
+    else:
+        # вибір що редагувати
+        labels = {
+            "iskra": "🔥 Іскра (промпт стану)",
+            "vektor": "🎯 Вектор (промпт стану)",
+            "__global__": "🚫 Глобальні заборони",
+        }
+        meth["nice"] = meth["state_key"].map(lambda k: labels.get(k, k))
+        pick = st.selectbox("Що редагувати:", meth["nice"].tolist())
+        row = meth[meth["nice"]==pick].iloc[0]
+        key = row["state_key"]
+
+        st.caption(f"Останнє редагування: {row['updated_at']} · ким: {row['updated_by']}")
+
+        new_prompt = st.text_area(
+            "Промпт (інструкція для Провідника):",
+            value=row["system_prompt"], height=380, key=f"prompt_{key}")
+
+        new_phrases = None
+        if key not in ("__global__",):
+            new_phrases = st.text_area(
+                "Приклади фраз (по одній на рядок, опційно):",
+                value=row["sample_phrases"] or "", height=120, key=f"phr_{key}")
+
+        col_save, col_info = st.columns([1,3])
+        if col_save.button("💾 Зберегти", type="primary"):
+            try:
+                conn = get_conn_w()
+                cur = conn.cursor()
+                if new_phrases is not None:
+                    cur.execute("""UPDATE methodology
+                        SET system_prompt=%s, sample_phrases=%s,
+                            updated_at=now(), updated_by='olga'
+                        WHERE state_key=%s""", (new_prompt, new_phrases, key))
+                else:
+                    cur.execute("""UPDATE methodology
+                        SET system_prompt=%s, updated_at=now(), updated_by='olga'
+                        WHERE state_key=%s""", (new_prompt, key))
+                conn.commit(); conn.close()
+                q.clear()  # скинути кеш
+                st.success("✅ Збережено! Бот уже відповідає по-новому. "
+                           "Перевірте в Telegram.")
+            except Exception as e:
+                st.error(f"Помилка збереження: {e}")
+        col_info.caption("Після збереження напишіть боту в Telegram — "
+                         "він візьме нову версію з першої ж відповіді.")
