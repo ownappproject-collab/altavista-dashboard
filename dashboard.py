@@ -6,6 +6,7 @@
 """
 
 import os
+import json
 import psycopg2
 import pandas as pd
 import streamlit as st
@@ -55,8 +56,8 @@ st.markdown("""
 st.title("🔥 Альтавіста — Кабінет спостереження")
 st.caption("Спостереження за методологією у живих діалогах")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість", "⚙️ Методологія"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість", "⚙️ Методологія", "📝 Контент"])
 
 # ============ ОГЛЯД ============
 with tab1:
@@ -453,3 +454,103 @@ with tab5:
                 st.error(f"Помилка збереження: {e}")
         col_info.caption("Після збереження напишіть боту в Telegram — "
                          "він візьме нову версію з першої ж відповіді.")
+
+# ============ КОНТЕНТ (Ольга наповнює дерево входу) ============
+with tab6:
+    st.subheader("📝 Контент дерева входу")
+    st.caption("Тут ви наповнюєте те, що бот показує дитині: питання діагностики, "
+               "хаби, тексти входу, логіку аватара. Бот бере звідси.")
+
+    def conn_w():
+        dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL","")
+        if dsn.startswith("postgres://"):
+            dsn = dsn.replace("postgres://","postgresql://",1)
+        return psycopg2.connect(dsn, sslmode="require")
+
+    # перевірка таблиць
+    try:
+        _ = q("SELECT 1 FROM entry_texts LIMIT 1")
+        ready = True
+    except Exception:
+        ready = False
+
+    if not ready:
+        st.warning("Таблиці контенту ще не створені. "
+                   "Розробнику: `python -m db.init_content`")
+    else:
+        sub = st.radio("Розділ:", ["✍️ Тексти входу", "❓ Діагностика (16 питань)",
+                                    "🗂 Хаби та підтеми", "🎭 Аватар"], horizontal=True)
+
+        # ---- ТЕКСТИ ВХОДУ ----
+        if sub == "✍️ Тексти входу":
+            texts = q("SELECT key, text, note FROM entry_texts ORDER BY key")
+            for _, row in texts.iterrows():
+                st.markdown(f"**{row['note']}** `({row['key']})`")
+                new = st.text_area("", value=row["text"], key=f"txt_{row['key']}",
+                                   height=80, label_visibility="collapsed")
+                if st.button("💾 Зберегти", key=f"savetxt_{row['key']}"):
+                    cn=conn_w();cur=cn.cursor()
+                    cur.execute("UPDATE entry_texts SET text=%s,updated_at=now() WHERE key=%s",
+                                (new,row["key"]));cn.commit();cn.close();q.clear()
+                    st.success("Збережено!")
+                st.divider()
+
+        # ---- ДІАГНОСТИКА ----
+        elif sub == "❓ Діагностика (16 питань)":
+            qs = q("SELECT id, ord, text, options FROM diag_questions ORDER BY ord")
+            st.caption(f"Питань у базі: {len(qs)}. Варіанти: А=Аутсайдер, Б=Глядач, В=Гравець.")
+            if qs.empty:
+                st.info("Питань ще немає.")
+            for _, row in qs.iterrows():
+                with st.expander(f"Питання {row['ord']}: {row['text'][:50]}..."):
+                    new_text = st.text_input("Текст питання", value=row["text"],
+                                             key=f"q_{row['id']}")
+                    opts = row["options"] if isinstance(row["options"],list) else json.loads(row["options"])
+                    new_opts = []
+                    for j,o in enumerate(opts):
+                        scores = o.get("scores",{})
+                        who = "А/outsider" if "outsider" in scores else ("Б/spectator" if "spectator" in scores else "В/player")
+                        lbl = st.text_input(f"Варіант {who}", value=o["label"],
+                                            key=f"q_{row['id']}_o{j}")
+                        new_opts.append({"label":lbl,"scores":scores})
+                    if st.button("💾 Зберегти питання", key=f"saveq_{row['id']}"):
+                        cn=conn_w();cur=cn.cursor()
+                        cur.execute("UPDATE diag_questions SET text=%s,options=%s,updated_at=now() WHERE id=%s",
+                                    (new_text,json.dumps(new_opts,ensure_ascii=False),int(row["id"])))
+                        cn.commit();cn.close();q.clear()
+                        st.success("Збережено!")
+
+        # ---- ХАБИ ----
+        elif sub == "🗂 Хаби та підтеми":
+            hubs = q("SELECT id, label, subtopics FROM hubs ORDER BY ord")
+            st.caption("Для кожного хаба впишіть підтеми (по одній на рядок).")
+            for _, row in hubs.iterrows():
+                subs = row["subtopics"] if isinstance(row["subtopics"],list) else json.loads(row["subtopics"] or "[]")
+                with st.expander(f"🗂 {row['label']} ({len(subs)} підтем)"):
+                    txt = st.text_area("Підтеми (рядок = підтема):",
+                                       value="\n".join(subs), key=f"hub_{row['id']}", height=120)
+                    if st.button("💾 Зберегти підтеми", key=f"savehub_{row['id']}"):
+                        new_subs=[s.strip() for s in txt.split("\n") if s.strip()]
+                        cn=conn_w();cur=cn.cursor()
+                        cur.execute("UPDATE hubs SET subtopics=%s WHERE id=%s",
+                                    (json.dumps(new_subs,ensure_ascii=False),row["id"]))
+                        cn.commit();cn.close();q.clear()
+                        st.success(f"Збережено {len(new_subs)} підтем!")
+
+        # ---- АВАТАР ----
+        elif sub == "🎭 Аватар":
+            st.caption("Як домінанта профілю перетворюється на картку-аватар дитини.")
+            am = q("SELECT profile_type, superpower, weakness, driver FROM avatar_map")
+            names = {"player":"🟢 Гравець","spectator":"🟡 Глядач","outsider":"🔴 Аутсайдер"}
+            for _, row in am.iterrows():
+                st.markdown(f"### {names.get(row['profile_type'],row['profile_type'])}")
+                sp = st.text_input("Суперсила", value=row["superpower"] or "", key=f"av_sp_{row['profile_type']}")
+                wk = st.text_input("Зона росту", value=row["weakness"] or "", key=f"av_wk_{row['profile_type']}")
+                dr = st.text_input("Що рухає (драйвер)", value=row["driver"] or "", key=f"av_dr_{row['profile_type']}")
+                if st.button("💾 Зберегти", key=f"saveav_{row['profile_type']}"):
+                    cn=conn_w();cur=cn.cursor()
+                    cur.execute("""UPDATE avatar_map SET superpower=%s,weakness=%s,driver=%s,updated_at=now()
+                        WHERE profile_type=%s""",(sp,wk,dr,row["profile_type"]))
+                    cn.commit();cn.close();q.clear()
+                    st.success("Збережено!")
+                st.divider()
