@@ -1,29 +1,24 @@
 """
-АЛЬТАВІСТА — Кабінет спостереження (Streamlit).
-Для автора методології: читати діалоги дітей + метрики.
+АЛЬТАВІСТА — Кабінет спостереження v2 (SaaS-рівень).
+Для автора методології: спостерігати, як працює методологія вживу.
 
-Запуск локально:
-    pip install streamlit psycopg2-binary pandas
-    export DATABASE_URL="postgres://..."
-    streamlit run dashboard.py
-
-Деплой: окремий репозиторій на Streamlit Cloud,
-DATABASE_URL — у Secrets (та сама база, що й бот).
+Вкладки: Огляд · Діалоги (з фільтрами, чат-вид) · Воронка · Якість
 """
 
 import os
 import psycopg2
 import pandas as pd
 import streamlit as st
+from datetime import datetime, timedelta
 
-# ----- підключення до тієї ж бази, що й бот -----
+# ============ ПІДКЛЮЧЕННЯ ============
 def get_conn():
     dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL", "")
     if dsn.startswith("postgres://"):
         dsn = dsn.replace("postgres://", "postgresql://", 1)
     return psycopg2.connect(dsn, sslmode="require")
 
-
+@st.cache_data(ttl=30)
 def q(sql, params=None):
     conn = get_conn()
     try:
@@ -31,119 +26,188 @@ def q(sql, params=None):
     finally:
         conn.close()
 
-
 st.set_page_config(page_title="Альтавіста · Кабінет", page_icon="🔥", layout="wide")
+
+# ----- легкий стиль -----
+st.markdown("""
+<style>
+  .stApp { background: #0f1117; }
+  .bubble-child {
+     background:#1e2330; border-radius:14px 14px 14px 4px;
+     padding:10px 14px; margin:4px 0; max-width:75%;
+     color:#e8eaf0; border:1px solid #2a3142;
+  }
+  .bubble-ai {
+     background:#2b1f3a; border-radius:14px 14px 4px 14px;
+     padding:10px 14px; margin:4px 0 4px auto; max-width:75%;
+     color:#f0e8fa; border:1px solid #443055; text-align:left;
+  }
+  .meta { color:#7a8294; font-size:0.75rem; margin-bottom:2px; }
+  .flag { display:inline-block; padding:1px 8px; border-radius:10px;
+          font-size:0.7rem; margin-left:6px; }
+  .flag-warn { background:#3a2a1a; color:#e0a060; }
+  .flag-ok { background:#1a3a25; color:#60d090; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🔥 Альтавіста — Кабінет спостереження")
+st.caption("Спостереження за методологією у живих діалогах")
 
-tab_overview, tab_dialogs, tab_quality = st.tabs(
-    ["📊 Огляд", "💬 Діалоги", "✅ Якість"]
-)
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість"])
 
-# ============ ВКЛАДКА 1: ОГЛЯД ============
-with tab_overview:
-    st.subheader("Загальні метрики")
+# ============ ОГЛЯД ============
+with tab1:
+    users = int(q("SELECT count(*) n FROM users")["n"][0])
+    sessions = int(q("SELECT count(*) n FROM sessions")["n"][0])
+    messages = int(q("SELECT count(*) n FROM messages")["n"][0])
+    child_msgs = int(q("SELECT count(*) n FROM messages WHERE role='child'")["n"][0])
+    active_24h = int(q("""SELECT count(DISTINCT s.user_id) n FROM sessions s
+        JOIN messages m ON m.session_id=s.id
+        WHERE m.ts > now() - interval '24 hours'""")["n"][0])
 
-    users = q("SELECT count(*) AS n FROM users")["n"][0]
-    sessions = q("SELECT count(*) AS n FROM sessions")["n"][0]
-    messages = q("SELECT count(*) AS n FROM messages")["n"][0]
-    child_msgs = q("SELECT count(*) AS n FROM messages WHERE role='child'")["n"][0]
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Дітей", int(users))
-    c2.metric("Сесій", int(sessions))
-    c3.metric("Повідомлень", int(messages))
-    avg = round(child_msgs / sessions, 1) if sessions else 0
-    c4.metric("Реплік дитини / сесію", avg)
+    c = st.columns(5)
+    c[0].metric("Дітей", users)
+    c[1].metric("Активні (24г)", active_24h)
+    c[2].metric("Сесій", sessions)
+    c[3].metric("Повідомлень", messages)
+    c[4].metric("Реплік/сесію", round(child_msgs/sessions,1) if sessions else 0)
 
     st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Етапи (FSM)")
+        states = q("""SELECT current_state "Стан", count(*) "Дітей"
+                      FROM sessions GROUP BY 1 ORDER BY 2 DESC""")
+        if not states.empty:
+            st.bar_chart(states.set_index("Стан"), height=240)
+    with col2:
+        st.subheader("Активність по днях")
+        daily = q("""SELECT date_trunc('day',ts)::date "День", count(*) "Повідомлень"
+                     FROM messages GROUP BY 1 ORDER BY 1""")
+        if not daily.empty:
+            st.line_chart(daily.set_index("День"), height=240)
 
-    # розподіл по станах FSM
-    st.subheader("На якому етапі діти")
-    states = q("""
-        SELECT current_state AS "Стан", count(*) AS "Дітей"
-        FROM sessions GROUP BY current_state ORDER BY count(*) DESC
-    """)
-    if not states.empty:
-        st.bar_chart(states.set_index("Стан"))
-    else:
-        st.info("Поки немає сесій.")
+# ============ ДІАЛОГИ (фільтри + чат-вид) ============
+with tab2:
+    st.subheader("Читати діалоги")
 
-    # активність по днях
-    st.subheader("Активність по днях")
-    daily = q("""
-        SELECT date_trunc('day', ts)::date AS "День", count(*) AS "Повідомлень"
-        FROM messages GROUP BY 1 ORDER BY 1
-    """)
-    if not daily.empty:
-        st.line_chart(daily.set_index("День"))
+    fc = st.columns([2,2,3])
+    # фільтр по даті
+    period = fc[0].selectbox("Період", ["Усі", "Сьогодні", "7 днів", "30 днів"])
+    # фільтр по стану
+    all_states = q("SELECT DISTINCT current_state s FROM sessions")["s"].dropna().tolist()
+    state_f = fc[1].selectbox("Стан", ["Усі"] + all_states)
+    # пошук по тексту
+    search = fc[2].text_input("🔍 Пошук по тексту діалогу", "")
 
-# ============ ВКЛАДКА 2: ДІАЛОГИ ============
-with tab_dialogs:
-    st.subheader("Читати діалоги дітей")
+    # збираємо дітей з фільтрами
+    where = ["1=1"]
+    params = {}
+    if period == "Сьогодні":
+        where.append("m.ts::date = current_date")
+    elif period == "7 днів":
+        where.append("m.ts > now() - interval '7 days'")
+    elif period == "30 днів":
+        where.append("m.ts > now() - interval '30 days'")
+    if state_f != "Усі":
+        where.append("s.current_state = %(st)s"); params["st"] = state_f
+    if search.strip():
+        where.append("m.text ILIKE %(q)s"); params["q"] = f"%{search.strip()}%"
 
-    kids = q("""
-        SELECT u.id, u.tg_id, u.age, u.created_at,
-               count(m.id) AS msgs
+    kids = q(f"""
+        SELECT u.id, u.tg_id, count(m.id) msgs, max(m.ts) last_ts
         FROM users u
-        LEFT JOIN sessions s ON s.user_id = u.id
-        LEFT JOIN messages m ON m.session_id = s.id
-        GROUP BY u.id, u.tg_id, u.age, u.created_at
-        ORDER BY u.created_at DESC
-    """)
+        JOIN sessions s ON s.user_id=u.id
+        JOIN messages m ON m.session_id=s.id
+        WHERE {' AND '.join(where)}
+        GROUP BY u.id, u.tg_id
+        ORDER BY last_ts DESC
+    """, params)
 
     if kids.empty:
-        st.info("Поки немає дітей у базі.")
+        st.info("Нічого не знайдено за фільтрами.")
     else:
-        # вибір дитини
         kids["label"] = kids.apply(
-            lambda r: f"Дитина #{r['id']} (tg {r['tg_id']}, {r['msgs']} реплік)", axis=1
-        )
-        choice = st.selectbox("Оберіть дитину:", kids["label"])
-        uid = int(kids[kids["label"] == choice]["id"].values[0])
+            lambda r: f"Дитина #{r['id']} · tg {r['tg_id']} · {r['msgs']} реплік", axis=1)
+        choice = st.selectbox(f"Знайдено дітей: {len(kids)}", kids["label"])
+        uid = int(kids[kids["label"]==choice]["id"].values[0])
 
-        # весь діалог цієї дитини
-        dialog = q("""
-            SELECT m.role, m.text, m.state, m.ts
-            FROM messages m
-            JOIN sessions s ON s.id = m.session_id
-            WHERE s.user_id = %(uid)s
-            ORDER BY m.ts
-        """, {"uid": uid})
+        dialog = q("""SELECT role, text, state, ts FROM messages m
+                      JOIN sessions s ON s.id=m.session_id
+                      WHERE s.user_id=%(uid)s ORDER BY m.ts""", {"uid": uid})
 
-        st.caption(f"Всього реплік: {len(dialog)}")
+        # детект зацикливания: ИИ повторяет начало фразы
+        prev_ai_start = None
         for _, m in dialog.iterrows():
+            t = m["text"]
+            ts = pd.to_datetime(m["ts"]).strftime("%d.%m %H:%M")
             if m["role"] == "child":
-                st.markdown(f"🧒 **Дитина:** {m['text']}")
+                st.markdown(f"<div class='meta'>🧒 {ts}</div>"
+                            f"<div class='bubble-child'>{t}</div>", unsafe_allow_html=True)
             else:
-                st.markdown(f"🔥 **Провідник** *(стан: {m['state']})*: {m['text']}")
-        st.divider()
+                # прапорець зацикливания
+                start = t[:15]
+                flag = ""
+                if prev_ai_start and start == prev_ai_start:
+                    flag = "<span class='flag flag-warn'>повтор зачину</span>"
+                prev_ai_start = start
+                st.markdown(f"<div class='meta' style='text-align:right'>"
+                            f"🔥 Провідник · {m['state']} · {ts}{flag}</div>"
+                            f"<div class='bubble-ai'>{t}</div>", unsafe_allow_html=True)
 
-# ============ ВКЛАДКА 3: ЯКІСТЬ ============
-with tab_quality:
-    st.subheader("Якість роботи методології")
+# ============ ВОРОНКА ============
+with tab3:
+    st.subheader("Воронка методології: Іскра → Вектор")
+    st.caption("Скільки дітей дійшло до кожного етапу")
 
-    by_state = q("""
-        SELECT state AS "Стан",
-               count(*) FILTER (WHERE role='ai') AS "Відповідей ІІ",
-               count(*) FILTER (WHERE role='child') AS "Реплік дитини"
-        FROM messages
-        WHERE state IS NOT NULL
-        GROUP BY state
-    """)
-    if not by_state.empty:
-        st.dataframe(by_state, use_container_width=True, hide_index=True)
-    else:
-        st.info("Поки немає даних.")
+    total = int(q("SELECT count(*) n FROM users")["n"][0])
+    reached_iskra = int(q("""SELECT count(DISTINCT user_id) n FROM sessions
+        WHERE current_state IN ('iskra','vektor')""")["n"][0])
+    reached_vektor = int(q("""SELECT count(DISTINCT user_id) n FROM sessions
+        WHERE current_state='vektor'""")["n"][0])
+
+    funnel = pd.DataFrame({
+        "Етап": ["Зайшли", "Іскра", "Вектор"],
+        "Дітей": [total, reached_iskra, reached_vektor]
+    })
+    st.bar_chart(funnel.set_index("Етап"), height=260)
+
+    c = st.columns(3)
+    c[0].metric("Зайшли", total)
+    c[1].metric("Дійшли до Іскри", reached_iskra,
+                f"{round(100*reached_iskra/total)}%" if total else "—")
+    c[2].metric("Дійшли до Вектора", reached_vektor,
+                f"{round(100*reached_vektor/total)}%" if total else "—")
+    st.info("**Вектор** — ключова мета MVP: дитина сама сформулювала ціль. "
+            "Конверсія в Вектор = головний показник, чи працює методологія.")
+
+# ============ ЯКІСТЬ ============
+with tab4:
+    st.subheader("Якість діалогів")
+
+    # середня довжина діалогу
+    avg_len = q("""SELECT avg(c) a FROM (
+        SELECT session_id, count(*) c FROM messages WHERE role='child'
+        GROUP BY session_id) t""")["a"][0]
+    longest = q("""SELECT max(c) m FROM (
+        SELECT session_id, count(*) c FROM messages WHERE role='child'
+        GROUP BY session_id) t""")["m"][0]
+
+    c = st.columns(3)
+    c[0].metric("Середня глибина діалогу", round(float(avg_len),1) if avg_len else 0)
+    c[1].metric("Найдовший діалог", int(longest) if longest else 0)
+    # сесій що заглухли (1-2 репліки)
+    stalled = int(q("""SELECT count(*) n FROM (
+        SELECT session_id, count(*) c FROM messages WHERE role='child'
+        GROUP BY session_id HAVING count(*) <= 2) t""")["n"][0])
+    c[2].metric("Заглухли (≤2 реплік)", stalled,
+                help="Діти що написали 1-2 рази і зникли — тривожний сигнал")
 
     st.divider()
-    st.subheader("Скільки дітей дійшло до Вектора")
-    reached = q("""
-        SELECT count(DISTINCT user_id) AS n
-        FROM sessions WHERE current_state = 'vektor'
-    """)["n"][0]
-    total = q("SELECT count(*) AS n FROM users")["n"][0]
-    st.metric("Дійшли до «Вектора»", f"{int(reached)} з {int(total)}")
-    st.caption(
-        "Ключова метрика MVP: чи доводить методологія дитину "
-        "до самостійного формулювання цілі (стан «Вектор»)."
-    )
+    st.subheader("Розподіл реплік по станах")
+    by_state = q("""SELECT state "Стан",
+        count(*) FILTER (WHERE role='ai') "Відповідей Провідника",
+        count(*) FILTER (WHERE role='child') "Реплік дитини"
+        FROM messages WHERE state IS NOT NULL GROUP BY 1""")
+    if not by_state.empty:
+        st.dataframe(by_state, use_container_width=True, hide_index=True)
