@@ -9,6 +9,8 @@ import os
 import psycopg2
 import pandas as pd
 import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
 from datetime import datetime, timedelta
 
 # ============ ПІДКЛЮЧЕННЯ ============
@@ -87,6 +89,99 @@ with tab1:
                      FROM messages GROUP BY 1 ORDER BY 1""")
         if not daily.empty:
             st.line_chart(daily.set_index("День"), height=240)
+
+    # ===== АНАЛІТИКА ЕФЕКТИВНОСТІ (4 графіки) =====
+    st.divider()
+    st.header("📈 Аналітика ефективності методології")
+
+    PALETTE = ["#f0883e", "#a371f7", "#3fb950", "#58a6ff", "#db61a2"]
+
+    # --- 1. ВОРОНКА УТРИМАННЯ ПО РЕПЛІКАХ ---
+    st.subheader("🎯 Воронка утримання: до якої репліки доходять діти")
+    st.caption("Скільки дітей написали хоча б N-ту репліку. Де крива падає — там методологія втрачає дитину.")
+    retention = q("""
+        WITH numbered AS (
+          SELECT s.user_id,
+                 row_number() OVER (PARTITION BY s.user_id ORDER BY m.ts) AS rn
+          FROM messages m JOIN sessions s ON s.id=m.session_id
+          WHERE m.role='child'
+        )
+        SELECT rn AS "Репліка", count(DISTINCT user_id) AS "Дітей"
+        FROM numbered WHERE rn <= 15 GROUP BY rn ORDER BY rn
+    """)
+    if not retention.empty and len(retention) > 1:
+        fig = go.Figure(go.Scatter(
+            x=retention["Репліка"], y=retention["Дітей"],
+            fill='tozeroy', mode='lines+markers',
+            line=dict(color="#f0883e", width=3),
+            marker=dict(size=8, color="#f0883e")))
+        fig.update_layout(
+            template="plotly_dark", height=320,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis_title="Номер репліки дитини", yaxis_title="Скільки дітей дійшло",
+            margin=dict(l=40,r=20,t=20,b=40))
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Замало даних для воронки — потрібно більше діалогів.")
+
+    cc1, cc2 = st.columns(2)
+
+    # --- 2. РОЗПОДІЛ ГЛИБИНИ ДІАЛОГІВ (гістограма) ---
+    with cc1:
+        st.subheader("📊 Розподіл глибини діалогів")
+        depths = q("""SELECT count(*) c FROM messages WHERE role='child'
+                      GROUP BY session_id""")
+        if not depths.empty:
+            bins = {"1-2":0,"3-5":0,"6-10":0,"11+":0}
+            for c in depths["c"]:
+                if c<=2: bins["1-2"]+=1
+                elif c<=5: bins["3-5"]+=1
+                elif c<=10: bins["6-10"]+=1
+                else: bins["11+"]+=1
+            dfb = pd.DataFrame({"Глибина":list(bins.keys()),"Діалогів":list(bins.values())})
+            fig2 = px.bar(dfb, x="Глибина", y="Діалогів",
+                          color="Глибина", color_discrete_sequence=PALETTE)
+            fig2.update_layout(template="plotly_dark", height=280, showlegend=False,
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                margin=dict(l=40,r=20,t=20,b=40))
+            st.plotly_chart(fig2, use_container_width=True)
+            st.caption("Багато коротких (1-2) = діти не чіпляються. Довгі = методологія тримає.")
+
+    # --- 3. ДОВЖИНА ВІДПОВІДЕЙ БОТА В ЧАСІ ---
+    with cc2:
+        st.subheader("📉 Довжина відповідей бота")
+        ailen = q("""SELECT row_number() OVER (ORDER BY ts) AS n,
+                            length(text) AS len
+                     FROM messages WHERE role='ai' ORDER BY ts""")
+        if not ailen.empty and len(ailen) > 1:
+            fig3 = go.Figure(go.Scatter(
+                x=ailen["n"], y=ailen["len"], mode='lines',
+                line=dict(color="#a371f7", width=2)))
+            fig3.update_layout(template="plotly_dark", height=280,
+                paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                xaxis_title="Відповідь №", yaxis_title="Символів",
+                margin=dict(l=40,r=20,t=20,b=40))
+            st.plotly_chart(fig3, use_container_width=True)
+            st.caption("Якщо падає до нуля — бот скочується в короткі пустушки (як Groq).")
+
+    # --- 4. ТЕПЛОВА КАРТА АКТИВНОСТІ (година × день тижня) ---
+    st.subheader("🔥 Коли діти заходять (теплова карта)")
+    heat = q("""SELECT extract(dow from ts)::int AS dow,
+                       extract(hour from ts)::int AS hr,
+                       count(*) AS c
+                FROM messages GROUP BY 1,2""")
+    if not heat.empty:
+        days_ua = ["Нд","Пн","Вт","Ср","Чт","Пт","Сб"]
+        pivot = pd.DataFrame(0, index=days_ua, columns=list(range(24)))
+        for _,r in heat.iterrows():
+            pivot.iloc[int(r["dow"]), int(r["hr"])] = r["c"]
+        fig4 = px.imshow(pivot, color_continuous_scale="Oranges", aspect="auto")
+        fig4.update_layout(template="plotly_dark", height=260,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            xaxis_title="Година доби", yaxis_title="",
+            margin=dict(l=40,r=20,t=20,b=40))
+        st.plotly_chart(fig4, use_container_width=True)
+        st.caption("Темніше = більше активності. Видно, коли діти користуються ботом.")
 
 # ============ ДІАЛОГИ (фільтри + чат-вид) ============
 with tab2:
@@ -197,12 +292,87 @@ with tab4:
     c = st.columns(3)
     c[0].metric("Середня глибина діалогу", round(float(avg_len),1) if avg_len else 0)
     c[1].metric("Найдовший діалог", int(longest) if longest else 0)
-    # сесій що заглухли (1-2 репліки)
     stalled = int(q("""SELECT count(*) n FROM (
         SELECT session_id, count(*) c FROM messages WHERE role='child'
         GROUP BY session_id HAVING count(*) <= 2) t""")["n"][0])
     c[2].metric("Заглухли (≤2 реплік)", stalled,
                 help="Діти що написали 1-2 рази і зникли — тривожний сигнал")
+
+    st.divider()
+
+    # ----- ТАБЛИЦЯ ПО КОЖНІЙ ДИТИНІ -----
+    st.subheader("📋 Якість по кожній дитині")
+    per_child = q("""
+        SELECT
+            u.id AS "Дитина",
+            u.tg_id AS "tg",
+            count(*) FILTER (WHERE m.role='child') AS "Реплік",
+            count(*) FILTER (WHERE m.role='ai') AS "Відповідей",
+            max(s.current_state) AS "Стан",
+            round(avg(length(m.text)) FILTER (WHERE m.role='child')) AS "Сер.довжина repl",
+            min(m.ts) AS "Початок",
+            max(m.ts) AS "Останнє"
+        FROM users u
+        JOIN sessions s ON s.user_id=u.id
+        JOIN messages m ON m.session_id=s.id
+        GROUP BY u.id, u.tg_id
+        ORDER BY count(*) FILTER (WHERE m.role='child') DESC
+    """)
+    if not per_child.empty:
+        # маркер залученості: багато реплік = добре
+        def engagement(n):
+            if n >= 8: return "🟢 висока"
+            if n >= 4: return "🟡 середня"
+            return "🔴 низька"
+        per_child["Залученість"] = per_child["Реплік"].map(engagement)
+        # тривалість сесії в хвилинах
+        per_child["Хвилин"] = (
+            (pd.to_datetime(per_child["Останнє"]) - pd.to_datetime(per_child["Початок"]))
+            .dt.total_seconds() / 60
+        ).round().astype(int)
+        show = per_child[["Дитина","tg","Реплік","Відповідей","Стан",
+                          "Залученість","Хвилин","Сер.довжина repl"]]
+        st.dataframe(show, use_container_width=True, hide_index=True)
+        st.caption("Залученість: 🟢 8+ реплік · 🟡 4-7 · 🔴 ≤3. "
+                   "Низька = дитина не зачепилась, методологія не спрацювала.")
+
+    st.divider()
+
+    # ----- ГРАФІК: глибина діалогу по дітях -----
+    st.subheader("📊 Глибина діалогу по дітях")
+    if not per_child.empty:
+        chart_data = per_child.set_index("Дитина")[["Реплік"]]
+        st.bar_chart(chart_data, height=240)
+
+    st.divider()
+
+    # ----- МАРКЕРИ ЯКОСТІ -----
+    st.subheader("🚦 Маркери якості методології")
+
+    # зацикливание: ИИ повторил начало фразы 2+ раз
+    loops = q("""
+        WITH ai AS (
+          SELECT s.user_id, left(m.text,15) AS start, m.ts,
+                 lag(left(m.text,15)) OVER (PARTITION BY s.user_id ORDER BY m.ts) AS prev
+          FROM messages m JOIN sessions s ON s.id=m.session_id
+          WHERE m.role='ai'
+        )
+        SELECT count(*) n FROM ai WHERE start = prev
+    """)["n"][0]
+
+    mc = st.columns(3)
+    mc[0].metric("🔁 Повторів зачину ШІ", int(loops),
+                 help="Скільки разів бот почав відповідь так само як попередню — ознака зацикленості (як Groq)")
+    # дітей що дійшли далі 5 реплік (зачепились)
+    hooked = int(q("""SELECT count(*) n FROM (
+        SELECT session_id FROM messages WHERE role='child'
+        GROUP BY session_id HAVING count(*) >= 5) t""")["n"][0])
+    mc[1].metric("🎣 Зачепились (5+ реплік)", hooked,
+                 help="Діти що написали 5+ разів — методологія втримала увагу")
+    total_kids = int(q("SELECT count(*) n FROM users")["n"][0])
+    rate = round(100*hooked/total_kids) if total_kids else 0
+    mc[2].metric("Утримання", f"{rate}%",
+                 help="Частка дітей що зачепились від усіх")
 
     st.divider()
     st.subheader("Розподіл реплік по станах")
