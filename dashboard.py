@@ -31,19 +31,19 @@ def q(sql, params=None):
 
 st.set_page_config(page_title="Альтавіста · Кабінет", page_icon="🔥", layout="wide")
 
-# ----- адаптивний стиль (працює на світлій і темній темі) -----
+# ----- тёмний стиль -----
 st.markdown("""
 <style>
-  /* фон НЕ чіпаємо — Streamlit сам красить по обраній темі */
+  .stApp { background: #0f1117; }
   .bubble-child {
      background: rgba(88,166,255,0.12); border-radius:14px 14px 14px 4px;
      padding:10px 14px; margin:4px 0; max-width:75%;
-     border:1px solid rgba(88,166,255,0.3);
+     color:#e8eaf0; border:1px solid rgba(88,166,255,0.3);
   }
   .bubble-ai {
-     background: rgba(163,113,247,0.14); border-radius:14px 14px 4px 14px;
+     background: rgba(163,113,247,0.16); border-radius:14px 14px 4px 14px;
      padding:10px 14px; margin:4px 0 4px auto; max-width:75%;
-     border:1px solid rgba(163,113,247,0.35); text-align:left;
+     color:#f0e8fa; border:1px solid rgba(163,113,247,0.4); text-align:left;
   }
   .meta { opacity:0.6; font-size:0.75rem; margin-bottom:2px; }
   .flag { display:inline-block; padding:1px 8px; border-radius:10px;
@@ -60,16 +60,8 @@ st.markdown(
     "— натисніть, щоб відкрити в Telegram і написати `/start`."
 )
 
-# ----- вибір теми (світла/темна) для графіків -----
-with st.sidebar:
-    st.markdown("### 🎨 Тема")
-    theme_choice = st.radio(
-        "Оформлення графіків:",
-        ["🌙 Темна", "☀️ Світла"],
-        help="Загальну тему сайту можна змінити у меню ☰ (вгорі праворуч) → Settings → Theme")
-    st.caption("Загальна тема — меню ☰ вгорі праворуч → Settings → Theme "
-               "(світла / темна / системна).")
-PLOTLY_TEMPLATE = "plotly_dark" if theme_choice == "🌙 Темна" else "plotly_white"
+# тема зафіксована тёмна — графіки в темному оформленні
+PLOTLY_TEMPLATE = "plotly_dark"
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
     ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
