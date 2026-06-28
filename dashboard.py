@@ -275,7 +275,15 @@ with tab2:
             return f"{who}{tag} · {r['msgs']} реплік"
         kids["label"] = kids.apply(make_label, axis=1)
         choice = st.selectbox(f"Знайдено дітей: {len(kids)}", kids["label"])
-        uid = int(kids[kids["label"]==choice]["id"].values[0])
+        sel_row = kids[kids["label"]==choice].iloc[0]
+        uid = int(sel_row["id"])
+
+        # клікабельне посилання на телеграм дитини (якщо є username)
+        if has_names and sel_row.get("username"):
+            uname = sel_row["username"]
+            st.markdown(f"🔗 Написати в Telegram: [@{uname}](https://t.me/{uname})")
+        else:
+            st.caption(f"Прямого посилання немає (без @username). tg_id: {sel_row['tg_id']}")
 
         dialog = q("""SELECT role, text, state, ts FROM messages m
                       JOIN sessions s ON s.id=m.session_id
