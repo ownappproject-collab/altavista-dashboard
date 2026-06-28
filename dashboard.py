@@ -31,25 +31,25 @@ def q(sql, params=None):
 
 st.set_page_config(page_title="Альтавіста · Кабінет", page_icon="🔥", layout="wide")
 
-# ----- легкий стиль -----
+# ----- адаптивний стиль (працює на світлій і темній темі) -----
 st.markdown("""
 <style>
-  .stApp { background: #0f1117; }
+  /* фон НЕ чіпаємо — Streamlit сам красить по обраній темі */
   .bubble-child {
-     background:#1e2330; border-radius:14px 14px 14px 4px;
+     background: rgba(88,166,255,0.12); border-radius:14px 14px 14px 4px;
      padding:10px 14px; margin:4px 0; max-width:75%;
-     color:#e8eaf0; border:1px solid #2a3142;
+     border:1px solid rgba(88,166,255,0.3);
   }
   .bubble-ai {
-     background:#2b1f3a; border-radius:14px 14px 4px 14px;
+     background: rgba(163,113,247,0.14); border-radius:14px 14px 4px 14px;
      padding:10px 14px; margin:4px 0 4px auto; max-width:75%;
-     color:#f0e8fa; border:1px solid #443055; text-align:left;
+     border:1px solid rgba(163,113,247,0.35); text-align:left;
   }
-  .meta { color:#7a8294; font-size:0.75rem; margin-bottom:2px; }
+  .meta { opacity:0.6; font-size:0.75rem; margin-bottom:2px; }
   .flag { display:inline-block; padding:1px 8px; border-radius:10px;
           font-size:0.7rem; margin-left:6px; }
-  .flag-warn { background:#3a2a1a; color:#e0a060; }
-  .flag-ok { background:#1a3a25; color:#60d090; }
+  .flag-warn { background: rgba(224,160,96,0.2); color:#e0a060; }
+  .flag-ok { background: rgba(96,208,144,0.2); color:#60d090; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,6 +59,17 @@ st.markdown(
     "🤖 **Бот для тестування:** [@OwnLearningLab_bot](https://t.me/OwnLearningLab_bot) "
     "— натисніть, щоб відкрити в Telegram і написати `/start`."
 )
+
+# ----- вибір теми (світла/темна) для графіків -----
+with st.sidebar:
+    st.markdown("### 🎨 Тема")
+    theme_choice = st.radio(
+        "Оформлення графіків:",
+        ["🌙 Темна", "☀️ Світла"],
+        help="Загальну тему сайту можна змінити у меню ☰ (вгорі праворуч) → Settings → Theme")
+    st.caption("Загальна тема — меню ☰ вгорі праворуч → Settings → Theme "
+               "(світла / темна / системна).")
+PLOTLY_TEMPLATE = "plotly_dark" if theme_choice == "🌙 Темна" else "plotly_white"
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
     ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
@@ -133,7 +144,7 @@ with tab1:
             line=dict(color="#f0883e", width=3),
             marker=dict(size=8, color="#f0883e")))
         fig.update_layout(
-            template="plotly_dark", height=320,
+            template=PLOTLY_TEMPLATE, height=320,
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             xaxis_title="Номер репліки дитини", yaxis_title="Скільки дітей дійшло",
             margin=dict(l=40,r=20,t=20,b=40))
@@ -158,7 +169,7 @@ with tab1:
             dfb = pd.DataFrame({"Глибина":list(bins.keys()),"Діалогів":list(bins.values())})
             fig2 = px.bar(dfb, x="Глибина", y="Діалогів",
                           color="Глибина", color_discrete_sequence=PALETTE)
-            fig2.update_layout(template="plotly_dark", height=280, showlegend=False,
+            fig2.update_layout(template=PLOTLY_TEMPLATE, height=280, showlegend=False,
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 margin=dict(l=40,r=20,t=20,b=40))
             st.plotly_chart(fig2, use_container_width=True)
@@ -174,7 +185,7 @@ with tab1:
             fig3 = go.Figure(go.Scatter(
                 x=ailen["n"], y=ailen["len"], mode='lines',
                 line=dict(color="#a371f7", width=2)))
-            fig3.update_layout(template="plotly_dark", height=280,
+            fig3.update_layout(template=PLOTLY_TEMPLATE, height=280,
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
                 xaxis_title="Відповідь №", yaxis_title="Символів",
                 margin=dict(l=40,r=20,t=20,b=40))
@@ -193,7 +204,7 @@ with tab1:
         for _,r in heat.iterrows():
             pivot.iloc[int(r["dow"]), int(r["hr"])] = r["c"]
         fig4 = px.imshow(pivot, color_continuous_scale="Oranges", aspect="auto")
-        fig4.update_layout(template="plotly_dark", height=260,
+        fig4.update_layout(template=PLOTLY_TEMPLATE, height=260,
             paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             xaxis_title="Година доби", yaxis_title="",
             margin=dict(l=40,r=20,t=20,b=40))
