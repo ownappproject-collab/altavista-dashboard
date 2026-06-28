@@ -238,21 +238,42 @@ with tab2:
     if search.strip():
         where.append("m.text ILIKE %(q)s"); params["q"] = f"%{search.strip()}%"
 
-    kids = q(f"""
-        SELECT u.id, u.tg_id, count(m.id) msgs, max(m.ts) last_ts
-        FROM users u
-        JOIN sessions s ON s.user_id=u.id
-        JOIN messages m ON m.session_id=s.id
-        WHERE {' AND '.join(where)}
-        GROUP BY u.id, u.tg_id
-        ORDER BY last_ts DESC
-    """, params)
+    # тягнемо ще ім'я/нік (з відкатом, якщо стара схема)
+    try:
+        kids = q(f"""
+            SELECT u.id, u.tg_id,
+                   COALESCE(u.first_name,'') AS name, u.username,
+                   count(m.id) msgs, max(m.ts) last_ts
+            FROM users u
+            JOIN sessions s ON s.user_id=u.id
+            JOIN messages m ON m.session_id=s.id
+            WHERE {' AND '.join(where)}
+            GROUP BY u.id, u.tg_id, u.first_name, u.username
+            ORDER BY last_ts DESC
+        """, params)
+        has_names = True
+    except Exception:
+        kids = q(f"""
+            SELECT u.id, u.tg_id, count(m.id) msgs, max(m.ts) last_ts
+            FROM users u
+            JOIN sessions s ON s.user_id=u.id
+            JOIN messages m ON m.session_id=s.id
+            WHERE {' AND '.join(where)}
+            GROUP BY u.id, u.tg_id
+            ORDER BY last_ts DESC
+        """, params)
+        has_names = False
 
     if kids.empty:
         st.info("Нічого не знайдено за фільтрами.")
     else:
-        kids["label"] = kids.apply(
-            lambda r: f"Дитина #{r['id']} · tg {r['tg_id']} · {r['msgs']} реплік", axis=1)
+        def make_label(r):
+            name = (r.get("name") or "").strip() if has_names else ""
+            uname = r.get("username") if has_names else None
+            who = name if name else f"Дитина #{r['id']}"
+            tag = f" ({'@'+uname})" if uname else ""
+            return f"{who}{tag} · {r['msgs']} реплік"
+        kids["label"] = kids.apply(make_label, axis=1)
         choice = st.selectbox(f"Знайдено дітей: {len(kids)}", kids["label"])
         uid = int(kids[kids["label"]==choice]["id"].values[0])
 
