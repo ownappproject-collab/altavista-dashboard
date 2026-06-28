@@ -53,11 +53,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🔥 Альтавіста — Кабінет спостереження")
-st.caption("Спостереження за методологією у живих діалогах")
+st.title("🔥 Альтавіста — Кабінет спостереження та управління")
+st.caption("Спостереження за діалогами · управління методологією та контентом")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість", "⚙️ Методологія", "📝 Контент"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
+     "⚙️ Методологія", "📝 Контент", "👥 Учні", "❓ Довідка"])
 
 # ============ ОГЛЯД ============
 with tab1:
@@ -94,6 +95,17 @@ with tab1:
     # ===== АНАЛІТИКА ЕФЕКТИВНОСТІ (4 графіки) =====
     st.divider()
     st.header("📈 Аналітика ефективності методології")
+    with st.expander("ℹ️ Як читати ці графіки (натисніть)"):
+        st.markdown("""
+        - **🎯 Воронка утримання** — головний графік. Показує, до якої репліки доходять діти.
+          Якщо крива різко падає на 3-й репліці — значить саме там методологія втрачає увагу.
+          Це підказка, який стан/промпт треба підкрутити.
+        - **📊 Розподіл глибини** — скільки діалогів були короткими (1-2) чи довгими (11+).
+          Багато коротких = діти не чіпляються. Багато довгих = методологія тримає.
+        - **📉 Довжина відповідей бота** — чи не скочується бот у короткі пусті фрази.
+          Якщо лінія падає до нуля — бот «втомився», відповіді стали порожніми.
+        - **🔥 Теплова карта** — коли діти заходять (година × день). Темніше = більше активності.
+        """)
 
     PALETTE = ["#f0883e", "#a371f7", "#3fb950", "#58a6ff", "#db61a2"]
 
@@ -554,3 +566,155 @@ with tab6:
                     cn.commit();cn.close();q.clear()
                     st.success("Збережено!")
                 st.divider()
+
+# ============ ДОВІДКА (інструкція всередині кабінету) ============
+with tab7:
+    st.subheader("❓ Як користуватись кабінетом")
+    st.markdown("""
+Вітаю, Ольго! Тут ви **спостерігаєте**, як діти спілкуються з ботом,
+і **керуєте** методологією та контентом — без програміста.
+
+Головне: ви працюєте переважно з двома вкладками —
+**⚙️ Методологія** (як говорить бот) і **📝 Контент** (що показує бот).
+Решта вкладок — щоб спостерігати.
+
+---
+
+#### ⚙️ Методологія — ви редагуєте промпти
+1. Оберіть: 🔥 Іскра / 🎯 Вектор / 🚫 Глобальні заборони
+2. Правте текст інструкції для бота
+3. Натисніть **💾 Зберегти**
+4. Напишіть боту в Telegram — він **одразу** відповідає по-новому
+
+> Це жива лабораторія: крутите формулювання і відразу бачите результат.
+> Якщо щось зламалось — поверніть назад текст і збережіть.
+
+---
+
+#### 📝 Контент — ви наповнюєте дерево входу
+- **✍️ Тексти входу** — привітання, аватар, пропозиції
+- **❓ Діагностика** — 16 питань (А=Аутсайдер, Б=Глядач, В=Гравець). Чернетка — правте під себе
+- **🗂 Хаби** — впишіть підтеми для тем (по одній на рядок)
+- **🎭 Аватар** — суперсила/зона росту/драйвер для кожного типу
+
+---
+
+#### 📊 Спостереження
+- **Огляд** — загальні цифри + графіки (над ними є «ℹ️ Як читати»)
+- **Діалоги** — читати реальні розмови, з фільтрами і пошуком
+- **Воронка** — скільки дітей дійшло до Вектора (головна мета)
+- **Якість** — таблиця по кожній дитині, хто зачепився (🟢/🟡/🔴)
+
+---
+
+#### Щоб бот запрацював повністю, від вас:
+1. Затвердити/поправити **16 питань** діагностики
+2. Заповнити **аватар** (суперсила/зона росту/драйвер × 3 типи)
+3. Додати **підтеми** хоча б для одного хаба
+
+Після цього бот вестиме дитину: знайомство → діагностика → аватар → тема → Іскра.
+
+---
+
+*Якщо щось не зрозуміло — пишіть Максиму.*
+    """)
+
+# ============ УЧНІ (управління учнями) ============
+with tab7:
+    st.subheader("👥 Управління учнями")
+
+    def conn_uw():
+        dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL","")
+        if dsn.startswith("postgres://"):
+            dsn = dsn.replace("postgres://","postgresql://",1)
+        return psycopg2.connect(dsn, sslmode="require")
+
+    # тягнемо учнів з ім'ям/ніком (best-effort на випадок старої схеми)
+    try:
+        pupils = q("""
+            SELECT u.id, u.tg_id,
+                   COALESCE(u.first_name,'—') AS name,
+                   u.username,
+                   COALESCE(u.status,'active') AS status,
+                   COALESCE(u.note,'') AS note,
+                   count(m.id) AS msgs,
+                   max(m.ts) AS last_seen
+            FROM users u
+            LEFT JOIN sessions s ON s.user_id=u.id
+            LEFT JOIN messages m ON m.session_id=s.id
+            GROUP BY u.id, u.tg_id, u.first_name, u.username, u.status, u.note
+            ORDER BY max(m.ts) DESC NULLS LAST
+        """)
+        new_schema = True
+    except Exception:
+        pupils = q("""SELECT u.id, u.tg_id, count(m.id) msgs, max(m.ts) last_seen
+            FROM users u LEFT JOIN sessions s ON s.user_id=u.id
+            LEFT JOIN messages m ON m.session_id=s.id
+            GROUP BY u.id, u.tg_id ORDER BY max(m.ts) DESC NULLS LAST""")
+        new_schema = False
+        st.warning("Поля імені ще не додані. Розробнику: `python -m db.migrate_users`")
+
+    if pupils.empty:
+        st.info("Поки немає учнів.")
+    else:
+        st.caption(f"Усього учнів: {len(pupils)}")
+
+        # таблиця-огляд
+        if new_schema:
+            disp = pupils.copy()
+            disp["Telegram"] = disp["username"].map(
+                lambda u: f"@{u}" if u else "—")
+            disp["Статус"] = disp["status"].map(
+                {"active":"🟢 активний","test":"🧪 тест","blocked":"⛔ заблок."})
+            show = disp[["id","name","Telegram","tg_id","msgs","Статус","last_seen"]]
+            show.columns = ["ID","Ім'я","Telegram","tg_id","Реплік","Статус","Останній раз"]
+            st.dataframe(show, use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(pupils, use_container_width=True, hide_index=True)
+
+        st.divider()
+        st.markdown("#### Дії з учнем")
+        pupils["pick"] = pupils.apply(
+            lambda r: f"#{r['id']} · {r.get('name','—')} · tg {r['tg_id']} · {r['msgs']} реплік", axis=1)
+        sel = st.selectbox("Оберіть учня:", pupils["pick"])
+        prow = pupils[pupils["pick"]==sel].iloc[0]
+        uid = int(prow["id"])
+
+        # посилання на телеграм якщо є username
+        if new_schema and prow.get("username"):
+            st.markdown(f"🔗 Telegram: [@{prow['username']}](https://t.me/{prow['username']})")
+        else:
+            st.caption("Прямого посилання нема (учень без @username). "
+                       f"tg_id: {prow['tg_id']}")
+
+        ca, cb, cc = st.columns(3)
+
+        # пометка статусу
+        if new_schema:
+            with ca:
+                new_status = st.selectbox("Статус:",
+                    ["active","test","blocked"],
+                    index=["active","test","blocked"].index(prow["status"]))
+                if st.button("Зберегти статус"):
+                    cn=conn_uw();cur=cn.cursor()
+                    cur.execute("UPDATE users SET status=%s WHERE id=%s",(new_status,uid))
+                    cn.commit();cn.close();q.clear()
+                    st.success(f"Статус: {new_status}")
+            with cb:
+                note = st.text_input("Нотатка:", value=prow.get("note",""))
+                if st.button("Зберегти нотатку"):
+                    cn=conn_uw();cur=cn.cursor()
+                    cur.execute("UPDATE users SET note=%s WHERE id=%s",(note,uid))
+                    cn.commit();cn.close();q.clear()
+                    st.success("Нотатку збережено")
+
+        # видалення з підтвердженням
+        with cc:
+            st.markdown("**🗑 Видалити назавжди**")
+            confirm = st.checkbox("Я впевнена, видалити всі дані цього учня")
+            if st.button("🗑 Видалити", type="secondary", disabled=not confirm):
+                cn=conn_uw();cur=cn.cursor()
+                cur.execute("DELETE FROM users WHERE id=%s",(uid,))  # каскад знесе сесії+повідомлення
+                cn.commit();cn.close();q.clear()
+                st.success("Учня видалено (разом з діалогами).")
+                st.rerun()
