@@ -34,16 +34,16 @@ st.set_page_config(page_title="Альтавіста · Кабінет", page_ico
 # ----- тёмний стиль -----
 st.markdown("""
 <style>
-  .stApp { background: #0f1117; }
+
   .bubble-child {
      background: rgba(88,166,255,0.12); border-radius:14px 14px 14px 4px;
      padding:10px 14px; margin:4px 0; max-width:75%;
-     color:#e8eaf0; border:1px solid rgba(88,166,255,0.3);
+     border:1px solid rgba(88,166,255,0.4);
   }
   .bubble-ai {
      background: rgba(163,113,247,0.16); border-radius:14px 14px 4px 14px;
      padding:10px 14px; margin:4px 0 4px auto; max-width:75%;
-     color:#f0e8fa; border:1px solid rgba(163,113,247,0.4); text-align:left;
+     border:1px solid rgba(163,113,247,0.45); text-align:left;
   }
   .meta { opacity:0.6; font-size:0.75rem; margin-bottom:2px; }
   .flag { display:inline-block; padding:1px 8px; border-radius:10px;
@@ -61,7 +61,7 @@ st.markdown(
 )
 
 # тема зафіксована тёмна — графіки в темному оформленні
-PLOTLY_TEMPLATE = "plotly_dark"
+PLOTLY_TEMPLATE = "plotly_white"
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
     ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
