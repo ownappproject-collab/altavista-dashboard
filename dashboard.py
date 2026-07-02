@@ -260,10 +260,19 @@ with tab2:
         st.info("Нічого не знайдено за фільтрами.")
     else:
         def make_label(r):
-            name = (r.get("name") or "").strip() if has_names else ""
-            uname = r.get("username") if has_names else None
+            name = str(r.get("name") or "").strip() if has_names else ""
+            uname_raw = r.get("username") if has_names else None
+            # username може бути None / NaN / число — приводимо надійно
+            uname = ""
+            if uname_raw is not None:
+                try:
+                    import pandas as _pd
+                    if not _pd.isna(uname_raw):
+                        uname = str(uname_raw).strip()
+                except Exception:
+                    uname = str(uname_raw).strip()
             who = name if name else f"Дитина #{r['id']}"
-            tag = f" ({'@'+uname})" if uname else ""
+            tag = f" (@{uname})" if uname else ""
             return f"{who}{tag} · {r['msgs']} реплік"
         kids["label"] = kids.apply(make_label, axis=1)
         choice = st.selectbox(f"Знайдено дітей: {len(kids)}", kids["label"])
@@ -271,9 +280,18 @@ with tab2:
         uid = int(sel_row["id"])
 
         # клікабельне посилання на телеграм дитини (якщо є username)
-        if has_names and sel_row.get("username"):
-            uname = sel_row["username"]
-            st.markdown(f"🔗 Написати в Telegram: [@{uname}](https://t.me/{uname})")
+        uname_sel = ""
+        if has_names:
+            raw = sel_row.get("username")
+            if raw is not None:
+                try:
+                    import pandas as _pd
+                    if not _pd.isna(raw):
+                        uname_sel = str(raw).strip()
+                except Exception:
+                    uname_sel = str(raw).strip()
+        if uname_sel:
+            st.markdown(f"🔗 Написати в Telegram: [@{uname_sel}](https://t.me/{uname_sel})")
         else:
             st.caption(f"Прямого посилання немає (без @username). tg_id: {sel_row['tg_id']}")
 
