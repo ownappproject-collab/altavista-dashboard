@@ -588,20 +588,39 @@ with tab6:
 
         # ---- ХАБИ ----
         elif sub == "🗂 Хаби та підтеми":
-            hubs = q("SELECT id, label, subtopics FROM hubs ORDER BY ord")
-            st.caption("Для кожного хаба впишіть підтеми (по одній на рядок).")
+            # trigger_phrase може ще не існувати в базі — читаємо з відкатом
+            try:
+                hubs = q("SELECT id, label, subtopics, COALESCE(trigger_phrase,'') AS trigger_phrase FROM hubs ORDER BY ord")
+                has_trigger = True
+            except Exception:
+                hubs = q("SELECT id, label, subtopics FROM hubs ORDER BY ord")
+                has_trigger = False
+            st.caption("Для кожного хаба: підтеми (по одній на рядок) і тригерна фраза — "
+                       "що бот каже ОДРАЗУ після вибору цього хаба (вхід-провокація).")
+            if not has_trigger:
+                st.warning("Поле тригерної фрази ще не додано в базу — попросіть @vitter запустити міграцію.")
             for _, row in hubs.iterrows():
                 subs = row["subtopics"] if isinstance(row["subtopics"],list) else json.loads(row["subtopics"] or "[]")
                 with st.expander(f"🗂 {row['label']} ({len(subs)} підтем)"):
+                    if has_trigger:
+                        trig = st.text_area(
+                            "⚡ Тригерна фраза після вибору (вхід-провокація):",
+                            value=row.get("trigger_phrase") or "",
+                            key=f"trig_{row['id']}", height=90,
+                            placeholder="Напр.: О, Майбутнє! Знаєш, є професія, якої ще не існує — але через 10 років вона буде головною. Хочеш дізнатись, яка?")
                     txt = st.text_area("Підтеми (рядок = підтема):",
                                        value="\n".join(subs), key=f"hub_{row['id']}", height=120)
-                    if st.button("💾 Зберегти підтеми", key=f"savehub_{row['id']}"):
+                    if st.button("💾 Зберегти", key=f"savehub_{row['id']}"):
                         new_subs=[s.strip() for s in txt.split("\n") if s.strip()]
                         cn=conn_w();cur=cn.cursor()
-                        cur.execute("UPDATE hubs SET subtopics=%s WHERE id=%s",
-                                    (json.dumps(new_subs,ensure_ascii=False),row["id"]))
+                        if has_trigger:
+                            cur.execute("UPDATE hubs SET subtopics=%s, trigger_phrase=%s WHERE id=%s",
+                                        (json.dumps(new_subs,ensure_ascii=False), trig.strip(), row["id"]))
+                        else:
+                            cur.execute("UPDATE hubs SET subtopics=%s WHERE id=%s",
+                                        (json.dumps(new_subs,ensure_ascii=False),row["id"]))
                         cn.commit();cn.close();q.clear()
-                        st.success(f"Збережено {len(new_subs)} підтем!")
+                        st.success("Збережено!")
 
         # ---- АВАТАР ----
         elif sub == "🎭 Аватар":
