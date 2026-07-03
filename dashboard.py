@@ -141,9 +141,16 @@ st.markdown(
 # тема зафіксована тёмна — графіки в темному оформленні
 PLOTLY_TEMPLATE = "plotly_white"
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
-    ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-     "⚙️ Методологія", "📝 Контент", "👥 Учні", "❓ Довідка"])
+_is_manager = st.session_state.auth_role in ("admin", "owner")
+if _is_manager:
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
+        ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "❓ Довідка", "🔐 Команда"])
+else:
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+        ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "❓ Довідка"])
+    tab9 = None
 
 # ============ ОГЛЯД ============
 with tab1:
@@ -893,3 +900,79 @@ with tab7:
                 cn.commit();cn.close();q.clear()
                 st.success("Учня видалено (разом з діалогами).")
                 st.rerun()
+
+# ============ 🔐 КОМАНДА (тільки admin/owner) ============
+if tab9 is not None:
+    with tab9:
+        st.subheader("🔐 Команда кабінету")
+        st.caption("Доступи до цього кабінету: хто може заходити, ролі, паролі. "
+                   "Це користувачі КАБІНЕТУ (не діти — діти у вкладці Учні).")
+
+        import secrets as _secrets
+
+        team = q("SELECT id, email, role, created_at FROM dashboard_users ORDER BY id")
+        st.dataframe(
+            team.rename(columns={"email":"Email","role":"Роль","created_at":"Створений"}),
+            use_container_width=True, hide_index=True,
+            column_config={"id": None})
+
+        st.markdown("---")
+        colA, colB = st.columns(2)
+
+        # ---- створити користувача ----
+        with colA:
+            st.markdown("#### ➕ Додати учасника")
+            with st.form("add_team_user", clear_on_submit=True):
+                new_email = st.text_input("Email (логін)")
+                new_pw = st.text_input("Пароль", type="password",
+                                       help="Мін. 8 символів. Передайте учаснику особисто.")
+                new_role = st.selectbox("Роль", ["methodologist", "admin", "owner"],
+                    format_func=lambda r: {"methodologist":"Методолог","admin":"Адмін","owner":"Власник"}[r])
+                add_ok = st.form_submit_button("Створити")
+            if add_ok:
+                if not new_email.strip() or len(new_pw) < 8:
+                    st.error("Вкажіть email і пароль від 8 символів.")
+                else:
+                    salt = _secrets.token_hex(16)
+                    pw_hash = _hash_pw(new_pw, salt)
+                    try:
+                        cn = conn_w(); cur = cn.cursor()
+                        cur.execute("""INSERT INTO dashboard_users (email, pw_salt, pw_hash, role)
+                                       VALUES (%s,%s,%s,%s)""",
+                                    (new_email.strip().lower(), salt, pw_hash, new_role))
+                        cn.commit(); cn.close(); q.clear()
+                        st.success(f"✅ {new_email.strip().lower()} доданий ({new_role})")
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Не вдалось (можливо, email вже існує).")
+
+        # ---- змінити пароль / видалити ----
+        with colB:
+            st.markdown("#### 🔑 Пароль / видалення")
+            emails = team["email"].tolist()
+            sel_email = st.selectbox("Учасник:", emails)
+            with st.form("chpw_form"):
+                pw2 = st.text_input("Новий пароль", type="password")
+                ch_ok = st.form_submit_button("🔑 Змінити пароль")
+            if ch_ok:
+                if len(pw2) < 8:
+                    st.error("Пароль від 8 символів.")
+                else:
+                    salt = _secrets.token_hex(16)
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("UPDATE dashboard_users SET pw_salt=%s, pw_hash=%s WHERE email=%s",
+                                (salt, _hash_pw(pw2, salt), sel_email))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success(f"✅ Пароль для {sel_email} змінено")
+
+            st.markdown("")
+            if sel_email == st.session_state.auth_email:
+                st.caption("🙅 Себе видалити не можна.")
+            else:
+                confirm_del = st.checkbox(f"Підтверджую видалення {sel_email}")
+                if st.button("🗑 Видалити учасника", disabled=not confirm_del):
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("DELETE FROM dashboard_users WHERE email=%s", (sel_email,))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success(f"🗑 {sel_email} видалений")
+                    st.rerun()
