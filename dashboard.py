@@ -64,18 +64,32 @@ if "auth_role" not in st.session_state:
     st.session_state.auth_email = None
 
 if not st.session_state.auth_role:
-    _c1, _c2, _c3 = st.columns([2, 1, 2])
-    with _c2:
-        try:
-            st.image("logo.png", width=130)
-        except Exception:
-            pass
-    st.title("🔥 Альтавіста — Кабінет")
-    st.caption("Вхід для команди проєкту")
+    # компактна картка входу по центру
+    st.markdown("""
+    <style>
+      [data-testid="stForm"] {max-width: 420px; margin: 0 auto;
+        border: 1px solid #e6e0d4; border-radius: 14px; padding: 26px 26px 18px;
+        box-shadow: 0 8px 30px rgba(0,0,0,.06);}
+      .login-logo {display:flex; justify-content:center; margin: 8px 0 6px;}
+      .login-logo img {width: 170px; height: 170px; object-fit: cover;
+        border-radius: 38px; box-shadow: 0 14px 40px rgba(160,40,90,.30);}
+      .login-title {text-align:center; font-size: 30px; font-weight: 700; margin: 10px 0 2px;}
+      .login-sub {text-align:center; color:#8a8f99; margin-bottom: 18px;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    import base64 as _b64, os as _os
+    if _os.path.exists("logo.png"):
+        _logo64 = _b64.b64encode(open("logo.png","rb").read()).decode()
+        st.markdown(f'<div class="login-logo"><img src="data:image/png;base64,{_logo64}"></div>',
+                    unsafe_allow_html=True)
+    st.markdown('<div class="login-title">Альтавіста — Кабінет</div>', unsafe_allow_html=True)
+    st.markdown('<div class="login-sub">Вхід для команди проєкту</div>', unsafe_allow_html=True)
+
     with st.form("login"):
         email = st.text_input("Email")
         password = st.text_input("Пароль", type="password")
-        ok = st.form_submit_button("Увійти")
+        ok = st.form_submit_button("Увійти", use_container_width=True)
     if ok:
         role = _check_login(email, password)
         if role:
