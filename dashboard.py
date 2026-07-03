@@ -31,6 +31,58 @@ def q(sql, params=None):
 
 st.set_page_config(page_title="Альтавіста · Кабінет", page_icon="🔥", layout="wide")
 
+# ============ ВХІД (email + пароль, користувачі в базі) ============
+import hashlib
+
+def _hash_pw(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000).hex()
+
+def _check_login(email: str, password: str):
+    """Повертає роль користувача або None."""
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("SELECT pw_salt, pw_hash, role FROM dashboard_users WHERE email=%s",
+                    (email.strip().lower(),))
+        row = cur.fetchone(); conn.close()
+        if not row:
+            return None
+        salt, pw_hash, role = row
+        if _hash_pw(password, salt) == pw_hash:
+            return role
+        return None
+    except Exception:
+        return None
+
+if "auth_role" not in st.session_state:
+    st.session_state.auth_role = None
+    st.session_state.auth_email = None
+
+if not st.session_state.auth_role:
+    st.title("🔥 Альтавіста — Кабінет")
+    st.caption("Вхід для команди проєкту")
+    with st.form("login"):
+        email = st.text_input("Email")
+        password = st.text_input("Пароль", type="password")
+        ok = st.form_submit_button("Увійти")
+    if ok:
+        role = _check_login(email, password)
+        if role:
+            st.session_state.auth_role = role
+            st.session_state.auth_email = email.strip().lower()
+            st.rerun()
+        else:
+            st.error("Невірний email або пароль.")
+    st.stop()
+
+# кнопка виходу в сайдбарі
+with st.sidebar:
+    st.caption(f"👤 {st.session_state.auth_email} · {st.session_state.auth_role}")
+    if st.button("🚪 Вийти"):
+        st.session_state.auth_role = None
+        st.session_state.auth_email = None
+        st.rerun()
+
+
 # ----- тёмний стиль -----
 st.markdown("""
 <style>
