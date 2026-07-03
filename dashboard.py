@@ -31,6 +31,12 @@ def q(sql, params=None):
 
 st.set_page_config(page_title="Альтавіста · Кабінет", page_icon="🔥", layout="wide")
 
+# логотип проєкту (в кутку кабінету); не падаємо, якщо файла нема
+try:
+    st.logo("logo.png")
+except Exception:
+    pass
+
 # ============ ВХІД (email + пароль, користувачі в базі) ============
 import hashlib
 
@@ -58,6 +64,12 @@ if "auth_role" not in st.session_state:
     st.session_state.auth_email = None
 
 if not st.session_state.auth_role:
+    _c1, _c2, _c3 = st.columns([2, 1, 2])
+    with _c2:
+        try:
+            st.image("logo.png", width=130)
+        except Exception:
+            pass
     st.title("🔥 Альтавіста — Кабінет")
     st.caption("Вхід для команди проєкту")
     with st.form("login"):
