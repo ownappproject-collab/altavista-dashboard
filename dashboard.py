@@ -985,25 +985,36 @@ with tab_prof:
                "Тут ви перевіряєте, чи діагностика влучає в реальність.")
 
     # --- дані (з відкатом, якщо міграція ще не пройшла) ---
+    _prof_err = None
     try:
         prof = q("""
             SELECT u.id, u.name, u.username,
-                   p.learning_type, p.driver, p.maturity, p.axis_scores,
-                   (SELECT count(*) FROM messages m
-                      JOIN sessions s ON s.id=m.session_id
-                     WHERE s.user_id=u.id) AS msgs
+                   p.learning_type, p.driver, p.maturity, p.axis_scores
               FROM users u
               LEFT JOIN profiles p ON p.user_id=u.id
              ORDER BY u.id
         """)
+        # к-сть реплік окремо (щоб важкий підзапит не ламав основний)
+        try:
+            msgs = q("""SELECT s.user_id AS id, count(*) AS msgs
+                          FROM messages m JOIN sessions s ON s.id=m.session_id
+                         GROUP BY s.user_id""")
+            prof = prof.merge(msgs, on="id", how="left")
+        except Exception:
+            prof["msgs"] = 0
+        prof["msgs"] = prof["msgs"].fillna(0).astype(int)
         has4 = True
-    except Exception:
+    except Exception as e:
         prof = None
         has4 = False
+        _prof_err = str(e)
 
     if not has4 or prof is None or prof.empty:
         st.info("Профілі за 4 осями ще не заповнені. Вони з'являються після того, "
                 "як дитина проходить діагностику (потрібна міграція add_profile_4axis).")
+        if _prof_err:
+            with st.expander("Технічна деталь (для розробника)"):
+                st.code(_prof_err)
     else:
         # ---- зведення: розподіл типів навчання ----
         st.markdown("#### 📊 Розподіл типів навчання")
