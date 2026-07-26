@@ -988,10 +988,12 @@ with tab_prof:
     _prof_err = None
     try:
         prof = q("""
-            SELECT u.id, u.name, u.username,
+            SELECT u.id,
+                   COALESCE(o.name, '') AS name,
                    p.learning_type, p.driver, p.maturity, p.axis_scores
               FROM users u
               LEFT JOIN profiles p ON p.user_id=u.id
+              LEFT JOIN onboarding o ON o.user_id=u.id
              ORDER BY u.id
         """)
         # к-сть реплік окремо (щоб важкий підзапит не ламав основний)
