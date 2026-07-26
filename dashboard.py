@@ -1107,9 +1107,9 @@ with tab_prof:
                     unsafe_allow_html=True)
                 st.markdown("---")
 
-# ============ 🧭 ЯК ЦЕ ПРАЦЮЄ ============
+
+# ============ ЯК ЦЕ ПРАЦЮЄ ============
 with tab_how:
-    # --- живі цифри з бази (з відкатом, якщо чогось нема) ---
     def _safe_scalar(sql, default=0):
         try:
             df = q(sql)
@@ -1123,163 +1123,172 @@ with tab_how:
     n_avatars  = _safe_scalar("SELECT count(*) FROM generated_avatars")
     n_hubs     = _safe_scalar("SELECT count(*) FROM hubs WHERE active")
 
+    # ---- фірмові знаки з айдентики CALABI (двері, компас, спіраль, куб) ----
+    ICONS = {
+        "door":    '<path d="M7 3h10v18H7z"/><path d="M7 3 4 5v16l3-2"/><circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/>',
+        "compass": '<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/>',
+        "spiral":  '<path d="M12 12a2 2 0 1 1 2.5 1.94A4.5 4.5 0 0 1 7.6 12 7 7 0 0 1 19 8.9"/>',
+        "cube":    '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
+        "paths":   '<path d="M12 21V11"/><path d="M12 11 5 4M12 11l7-7"/><circle cx="5" cy="3.5" r="1.4"/><circle cx="19" cy="3.5" r="1.4"/>',
+        "spark":   '<path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9z"/>',
+        "vector":  '<path d="M4 20 20 4"/><path d="M13 4h7v7"/>',
+        "veil":    '<path d="M3 12h7"/><path d="M14 12h7"/><circle cx="12" cy="12" r="1.6"/><path d="M12 4v3M12 17v3" stroke-dasharray="2 3"/>',
+    }
+    def ico(name, size=22):
+        return (f'<svg viewBox="0 0 24 24" width="{size}" height="{size}" fill="none" '
+                f'stroke="currentColor" stroke-width="1.4" stroke-linecap="round" '
+                f'stroke-linejoin="round">{ICONS[name]}</svg>')
+
     st.markdown("""
     <style>
-      .how-wrap {font-family: -apple-system, 'Segoe UI', sans-serif;}
-      .how-lead {font-size:17px; color:#4a5058; max-width:74ch; line-height:1.6; margin-bottom:6px;}
-      .flow {display:flex; flex-wrap:wrap; align-items:stretch; gap:0; margin:18px 0 6px;}
-      .node {flex:1 1 150px; min-width:150px; background:#fff; border:1px solid #e6e0d4;
-             border-radius:10px; padding:14px 14px 12px; position:relative;}
-      .node .ttl {font-weight:700; font-size:15px; margin-bottom:3px;}
-      .node .sub {font-size:12.5px; color:#8a8f99; line-height:1.45;}
-      .node .num {font-size:19px; font-weight:700; color:#e8622c; margin-top:6px;}
-      .arrow {display:flex; align-items:center; justify-content:center; width:26px;
-              color:#c9a227; font-size:19px; font-weight:700;}
-      .node.ai {border-color:#e8622c; box-shadow:0 2px 14px rgba(232,98,44,.10);}
-      .node.soon {border-style:dashed; opacity:.72;}
-      .legend {font-size:13px; color:#8a8f99; margin-top:4px;}
-      .step {display:flex; gap:14px; padding:14px 0; border-bottom:1px dashed #e6e0d4;}
-      .step:last-child {border-bottom:none;}
-      .step .idx {flex:0 0 30px; height:30px; border-radius:50%; background:#fdeee4;
-                  color:#e8622c; font-weight:700; display:flex; align-items:center;
-                  justify-content:center; font-size:14px;}
-      .step .body {flex:1;}
-      .step .head {font-weight:700; font-size:15.5px; margin-bottom:2px;}
-      .step .who {font-size:12px; color:#3f7d5c; background:#e8f2ec; padding:2px 8px;
-                  border-radius:20px; margin-left:8px; font-weight:600;}
-      .step .who.auto {color:#8a5cf6; background:#f0e9ff;}
-      .step .txt {font-size:14.5px; color:#5a616b; line-height:1.55;}
+      @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap');
+      .cal {
+        --cream:#F4EDE4; --clay:#C4642A; --gold:#DBA431;
+        --ink:#1E2930; --slate:#3A3F3D; --earth:#7A5A2C;
+        font-family:'Inter',-apple-system,sans-serif;
+      }
+      .cal h2.t {font-family:'Fraunces',Georgia,serif; font-size:30px; font-weight:700;
+        color:var(--ink); letter-spacing:-.01em; margin:2px 0 6px;}
+      .cal .lead {font-size:16.5px; color:var(--slate); max-width:70ch; line-height:1.6;}
+      .cal .eyebrow {font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+        color:var(--earth); font-weight:600; margin-bottom:10px;}
+
+      /* струна: лінія, на якій сидять вузли — відсилання до простору Калабі-Яу */
+      .string {position:relative; margin:26px 0 10px;}
+      .string::before {content:""; position:absolute; left:2%; right:2%; top:34px; height:1px;
+        background:linear-gradient(90deg,transparent,var(--gold) 12%,var(--gold) 88%,transparent);}
+      .row {display:flex; gap:12px; position:relative; z-index:1;}
+      .n {flex:1 1 0; min-width:132px; background:#fff; border:1px solid #E6DCCB;
+        border-radius:12px; padding:16px 14px 14px; transition:.18s;}
+      .n:hover {transform:translateY(-2px); box-shadow:0 6px 20px rgba(30,41,48,.07);}
+      .n .ic {color:var(--earth); height:24px; margin-bottom:9px;}
+      .n.ai {border-color:var(--clay); background:linear-gradient(180deg,#fff,#FDF6EF);}
+      .n.ai .ic {color:var(--clay);}
+      .n.next {border-style:dashed; background:transparent; opacity:.7;}
+      .n .h {font-family:'Fraunces',Georgia,serif; font-size:16px; font-weight:600;
+        color:var(--ink); margin-bottom:3px;}
+      .n .d {font-size:12.5px; color:#767B82; line-height:1.45;}
+      .n .v {font-family:'Fraunces',Georgia,serif; font-size:22px; font-weight:700;
+        color:var(--clay); margin-top:8px; line-height:1;}
+      .n .vl {font-size:11px; color:#9AA0A6; letter-spacing:.04em;}
+      .note {font-size:12.5px; color:#8A9096; margin-top:14px;}
+      .note b {color:var(--clay); font-weight:600;}
+
+      /* кроки */
+      .stp {display:flex; gap:16px; padding:16px 0; border-top:1px solid #EDE5D8;}
+      .stp:first-of-type {border-top:none;}
+      .stp .mk {flex:0 0 34px; height:34px; border-radius:10px; background:var(--cream);
+        color:var(--earth); display:flex; align-items:center; justify-content:center;}
+      .stp .hd {font-family:'Fraunces',Georgia,serif; font-size:17px; font-weight:600;
+        color:var(--ink); display:flex; align-items:center; gap:9px; margin-bottom:3px;}
+      .tag {font-family:'Inter',sans-serif; font-size:10.5px; font-weight:600; letter-spacing:.06em;
+        text-transform:uppercase; padding:3px 9px; border-radius:20px;}
+      .tag.hum {background:#E9F1EC; color:#3F7D5C;}
+      .tag.sys {background:#FBF0E2; color:var(--earth);}
+      .stp .tx {font-size:14.5px; color:var(--slate); line-height:1.6; max-width:76ch;}
+      .stp .tx b {color:var(--ink); font-weight:600;}
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<div class="how-wrap">', unsafe_allow_html=True)
-    st.subheader("🧭 Як працює CALABI")
-    st.markdown(
-        '<div class="how-lead">Система знаходить справжній інтерес дитини і веде її від першої '
-        'іскри до власної мети. Методолог наповнює зміст і спостерігає, ШІ веде діалог, '
-        'дитина рухається своїм шляхом.</div>', unsafe_allow_html=True)
-
-    # ---- жива схема потоку ----
     st.markdown(f"""
-    <div class="flow">
-      <div class="node">
-        <div class="ttl">👋 Знайомство</div>
-        <div class="sub">Дитина заходить у Telegram-бот</div>
-        <div class="num">{n_kids}</div>
-        <div class="sub">дітей у системі</div>
+    <div class="cal">
+      <div class="eyebrow">Calabi · як розгортається система</div>
+      <h2 class="t">Від згорнутого інтересу — до власного вектора</h2>
+      <p class="lead">У просторі Калабі-Яу виміри згорнуті: побачити їх напряму неможливо,
+      але саме вони формують властивості світу. Так само в дитині — таланти, спосіб мислення,
+      те, що по-справжньому чіпляє. Система розгортає ці виміри крок за кроком.</p>
+
+      <div class="string">
+        <div class="row">
+          <div class="n"><div class="ic">{ico('door')}</div>
+            <div class="h">Знайомство</div><div class="d">Дитина заходить у бот, називає ім'я</div>
+            <div class="v">{n_kids}</div><div class="vl">дітей у системі</div></div>
+          <div class="n"><div class="ic">{ico('compass')}</div>
+            <div class="h">Діагностика</div><div class="d">16 питань, у яких немає правильних відповідей</div>
+            <div class="v">{n_profiles}</div><div class="vl">профілів визначено</div></div>
+          <div class="n ai"><div class="ic">{ico('spiral')}</div>
+            <div class="h">Профайлер</div><div class="d">ШІ читає зміст відповідей: тип навчання, драйвер, зрілість</div></div>
+          <div class="n ai"><div class="ic">{ico('cube')}</div>
+            <div class="h">Аватар</div><div class="d">Персонаж, зібраний під конкретний профіль</div>
+            <div class="v">{n_avatars}</div><div class="vl">згенеровано</div></div>
+        </div>
       </div>
-      <div class="arrow">→</div>
-      <div class="node">
-        <div class="ttl">❓ Діагностика</div>
-        <div class="sub">16 питань, без правильних відповідей</div>
-        <div class="num">{n_profiles}</div>
-        <div class="sub">профілів визначено</div>
+
+      <div class="string">
+        <div class="row">
+          <div class="n"><div class="ic">{ico('paths')}</div>
+            <div class="h">Напрям</div><div class="d">Хаби, підтеми і ваші тригерні фрази</div>
+            <div class="v">{n_hubs}</div><div class="vl">напрямків</div></div>
+          <div class="n ai"><div class="ic">{ico('spark')}</div>
+            <div class="h">Іскра</div><div class="d">Живий діалог: парадокс, факт, питання вглиб</div>
+            <div class="v">{n_msgs}</div><div class="vl">реплік</div></div>
+          <div class="n next"><div class="ic">{ico('vector')}</div>
+            <div class="h">Вектор</div><div class="d">Кристалізація мети — у розробці</div></div>
+          <div class="n next"><div class="ic">{ico('veil')}</div>
+            <div class="h">Таємниця</div><div class="d">Глибинне дослідження — наступний крок</div></div>
+        </div>
       </div>
-      <div class="arrow">→</div>
-      <div class="node ai">
-        <div class="ttl">🤖 ШІ-профайлер</div>
-        <div class="sub">Читає зміст відповідей → тип навчання, драйвер, зрілість</div>
-      </div>
-      <div class="arrow">→</div>
-      <div class="node ai">
-        <div class="ttl">🎭 Аватар</div>
-        <div class="sub">ШІ генерує унікального персонажа під профіль</div>
-        <div class="num">{n_avatars}</div>
-        <div class="sub">згенеровано</div>
-      </div>
+
+      <p class="note">Блоки з <b>теплою рамкою</b> — там працює ШІ. Пунктирні — етапи,
+      які ще будуються. Цифри читаються з бази щоразу, коли ви відкриваєте цю сторінку.</p>
     </div>
-    <div class="flow">
-      <div class="node">
-        <div class="ttl">🗂 Вибір теми</div>
-        <div class="sub">Хаби, підтеми, тригерні фрази методолога</div>
-        <div class="num">{n_hubs}</div>
-        <div class="sub">напрямків</div>
-      </div>
-      <div class="arrow">→</div>
-      <div class="node ai">
-        <div class="ttl">🔥 Іскра</div>
-        <div class="sub">Живий діалог: провокація, факт, питання вглиб</div>
-        <div class="num">{n_msgs}</div>
-        <div class="sub">реплік у системі</div>
-      </div>
-      <div class="arrow">→</div>
-      <div class="node soon">
-        <div class="ttl">🎯 Вектор</div>
-        <div class="sub">Кристалізація мети · у розробці</div>
-      </div>
-      <div class="arrow">→</div>
-      <div class="node soon">
-        <div class="ttl">🔮 Таємниця</div>
-        <div class="sub">Глибинне дослідження · далі</div>
-      </div>
-    </div>
-    <div class="legend">🟠 помаранчеві блоки — працює ШІ · пунктирні — наступні етапи розробки ·
-    цифри оновлюються з бази в реальному часі</div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("#### Порядок роботи")
-    st.markdown("""
-    <div class="step">
-      <div class="idx">1</div>
-      <div class="body">
-        <div class="head">Наповнюєте зміст<span class="who">методолог</span></div>
-        <div class="txt">Вкладка <b>📝 Контент</b>: питання діагностики, хаби з підтемами,
-        тригерні фрази (те, що бот каже одразу після вибору теми), тексти входу.
-        Вкладка <b>⚙️ Методологія</b>: промпти Провідника — як саме ШІ говорить з дитиною.
-        Зберегли — бот відповідає по-новому одразу, без програміста.</div>
+    st.markdown("")
+    st.markdown(f"""
+    <div class="cal">
+      <div class="eyebrow">Порядок роботи</div>
+
+      <div class="stp">
+        <div class="mk">{ico('door', 20)}</div>
+        <div><div class="hd">Наповнюєте зміст <span class="tag hum">методолог</span></div>
+        <div class="tx">У вкладці <b>Контент</b> — питання діагностики, хаби з підтемами,
+        тригерні фрази, тексти входу. У вкладці <b>Методологія</b> — промпти Провідника:
+        як саме ШІ говорить з дитиною. Зберегли — бот відповідає по-новому одразу.</div></div>
       </div>
-    </div>
-    <div class="step">
-      <div class="idx">2</div>
-      <div class="body">
-        <div class="head">Дитина проходить вхід<span class="who auto">автоматично</span></div>
-        <div class="txt">Знайомство → 16 питань діагностики → ШІ аналізує <b>зміст</b> відповідей
-        і визначає профіль (тип навчання, драйвер, рівень зрілості) → генерує унікального
-        аватара-персонажа під цей профіль. Кожна дитина отримує свого, не шаблон.</div>
+
+      <div class="stp">
+        <div class="mk">{ico('compass', 20)}</div>
+        <div><div class="hd">Дитина проходить вхід <span class="tag sys">система</span></div>
+        <div class="tx">Знайомство, 16 питань, аналіз змісту відповідей, генерація аватара.
+        Профіль будується не з галочок, а з того, <b>що саме</b> дитина обрала і як це
+        поєднується між питаннями.</div></div>
       </div>
-    </div>
-    <div class="step">
-      <div class="idx">3</div>
-      <div class="body">
-        <div class="head">Дитина обирає напрям<span class="who auto">автоматично</span></div>
-        <div class="txt">Або одразу пише свою тему, або дивиться напрямки. Після вибору хаба
-        бот показує вашу тригерну фразу-провокацію і підтеми — і веде діалог по темі,
-        а не перепитує «що тобі цікаво».</div>
+
+      <div class="stp">
+        <div class="mk">{ico('paths', 20)}</div>
+        <div><div class="hd">Дитина обирає напрям <span class="tag sys">система</span></div>
+        <div class="tx">Або одразу пише свою тему, або дивиться напрямки. Після вибору хаба
+        бот показує вашу тригерну фразу і підтеми — і веде розмову по темі,
+        а не перепитує «що тобі цікаво».</div></div>
       </div>
-    </div>
-    <div class="step">
-      <div class="idx">4</div>
-      <div class="body">
-        <div class="head">Ви спостерігаєте і звіряєте<span class="who">методолог</span></div>
-        <div class="txt">Вкладка <b>🎭 Профілі</b>: який профіль система визначила по кожній дитині,
-        <b>чому</b> так вирішив ШІ і наскільки впевнено — плюс усі відповіді дитини.
-        Вкладка <b>💬 Діалоги</b>: реальні розмови. <b>✅ Якість</b> і <b>🎯 Воронка</b>:
-        хто зачепився, хто дійшов далі.</div>
+
+      <div class="stp">
+        <div class="mk">{ico('spiral', 20)}</div>
+        <div><div class="hd">Ви звіряєте з реальністю <span class="tag hum">методолог</span></div>
+        <div class="tx">Вкладка <b>Профілі</b>: що система визначила по кожній дитині,
+        <b>чому</b> саме так і наскільки впевнено — разом з усіма відповідями.
+        <b>Діалоги</b> — реальні розмови. <b>Якість</b> і <b>Воронка</b> — хто зачепився і хто пішов далі.</div></div>
       </div>
-    </div>
-    <div class="step">
-      <div class="idx">5</div>
-      <div class="body">
-        <div class="head">Система вчиться вашими руками<span class="who">разом</span></div>
-        <div class="txt">Бачите, що діагностика промахнулась або діти застрягають в одному місці —
-        правите питання і промпти в кабінеті. Дані накопичуються: профіль → який прийом спрацював →
-        де зачепилось. Це і є той актив, який неможливо скопіювати ззовні.</div>
+
+      <div class="stp">
+        <div class="mk">{ico('cube', 20)}</div>
+        <div><div class="hd">Система стає точнішою <span class="tag hum">разом</span></div>
+        <div class="tx">Бачите промах діагностики або місце, де діти застрягають — правите
+        питання і промпти тут же. Накопичується зв'язка «профіль → який прийом спрацював →
+        де зачепилось». Це той актив, який неможливо скопіювати ззовні.</div></div>
       </div>
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("---")
-    st.markdown("#### Що під капотом")
-    cA, cB, cC = st.columns(3)
-    with cA:
-        st.markdown("**🤖 Модель**  \nClaude Sonnet 5 з кешуванням промптів — "
-                    "витрати на ШІ тримаються в межах кількох доларів на місяць.")
-    with cB:
-        st.markdown("**🗄 Дані**  \nPostgreSQL: діти, сесії, репліки, профілі, аватари. "
+    st.markdown("")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("**Модель**  \nClaude Sonnet 5 з кешуванням промптів — витрати "
+                    "тримаються в межах кількох доларів на місяць.")
+    with c2:
+        st.markdown("**Дані**  \nPostgreSQL: діти, сесії, репліки, профілі, аватари. "
                     "Зміст відділений від коду — методолог змінює все сам.")
-    with cC:
-        st.markdown("**☁️ Інфраструктура**  \nБот працює 24/7 у хмарі, кабінет — окремий "
-                    "застосунок під паролем. Дані дітей закриті від сторонніх.")
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown("**Доступ**  \nБот працює цілодобово, кабінет — під паролем, "
+                    "з ролями. Дані дітей закриті від сторонніх.")
