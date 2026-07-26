@@ -143,13 +143,13 @@ PLOTLY_TEMPLATE = "plotly_white"
 
 _is_manager = st.session_state.auth_role in ("admin", "owner")
 if _is_manager:
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8, tab9 = st.tabs(
         ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "❓ Довідка", "🔐 Команда"])
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка", "🔐 Команда"])
 else:
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8 = st.tabs(
         ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "❓ Довідка"])
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка"])
     tab9 = None
 
 # ============ ОГЛЯД ============
@@ -976,3 +976,106 @@ if tab9 is not None:
                     cn.commit(); cn.close(); q.clear()
                     st.success(f"🗑 {sel_email} видалений")
                     st.rerun()
+
+# ============ 🎭 ПРОФІЛІ (4 осі + згенеровані аватари) ============
+with tab_prof:
+    st.subheader("🎭 Профілі дітей та згенеровані аватари")
+    st.caption("Що система визначила по кожній дитині: тип навчання, драйвер, "
+               "рівень зрілості — і який аватар згенерував ШІ. "
+               "Тут ви перевіряєте, чи діагностика влучає в реальність.")
+
+    # --- дані (з відкатом, якщо міграція ще не пройшла) ---
+    try:
+        prof = q("""
+            SELECT u.id, u.name, u.username,
+                   p.learning_type, p.driver, p.maturity, p.axis_scores,
+                   (SELECT count(*) FROM messages m
+                      JOIN sessions s ON s.id=m.session_id
+                     WHERE s.user_id=u.id) AS msgs
+              FROM users u
+              LEFT JOIN profiles p ON p.user_id=u.id
+             ORDER BY u.id
+        """)
+        has4 = True
+    except Exception:
+        prof = None
+        has4 = False
+
+    if not has4 or prof is None or prof.empty:
+        st.info("Профілі за 4 осями ще не заповнені. Вони з'являються після того, "
+                "як дитина проходить діагностику (потрібна міграція add_profile_4axis).")
+    else:
+        # ---- зведення: розподіл типів навчання ----
+        st.markdown("#### 📊 Розподіл типів навчання")
+        dist = prof["learning_type"].fillna("— не визначено").value_counts().reset_index()
+        dist.columns = ["Тип навчання", "Дітей"]
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.dataframe(dist, use_container_width=True, hide_index=True)
+        with c2:
+            drv = prof["driver"].fillna("— не визначено").value_counts().reset_index()
+            drv.columns = ["Драйвер", "Дітей"]
+            st.dataframe(drv, use_container_width=True, hide_index=True)
+
+        # попередження про перекіс — головний сигнал якості діагностики
+        determined = prof["learning_type"].dropna()
+        if len(determined) >= 3 and determined.nunique() == 1:
+            st.warning("⚠️ Усім дітям визначено ОДИН тип навчання. Схоже, питання "
+                       "діагностики поки не розрізняють осі — варто переробити їх "
+                       "під 4 осі (вкладка Контент → Діагностика).")
+
+        st.markdown("---")
+        st.markdown("#### 👤 Профіль по кожній дитині")
+        table = prof.copy()
+        table["Дитина"] = table.apply(
+            lambda r: (str(r["name"]).strip() if r["name"] else f"Дитина #{r['id']}"), axis=1)
+        show = table[["Дитина", "learning_type", "driver", "maturity", "msgs"]].rename(
+            columns={"learning_type": "Тип навчання", "driver": "Драйвер",
+                     "maturity": "Зрілість", "msgs": "Реплік"})
+        st.dataframe(show, use_container_width=True, hide_index=True)
+
+        # ---- детальна картка обраної дитини ----
+        st.markdown("---")
+        st.markdown("#### 🔍 Детально: профіль + аватар")
+        names = table["Дитина"].tolist()
+        pick = st.selectbox("Оберіть дитину:", names, key="prof_pick")
+        row = table[table["Дитина"] == pick].iloc[0]
+        uid = int(row["id"])
+
+        cA, cB, cC = st.columns(3)
+        cA.metric("Тип навчання", row["learning_type"] or "—")
+        cB.metric("Драйвер", row["driver"] or "—")
+        cC.metric("Зрілість", row["maturity"] or "—")
+
+        # бали по осях — показують, наскільки впевнено визначився профіль
+        ax = row["axis_scores"]
+        if isinstance(ax, str):
+            try: ax = json.loads(ax)
+            except Exception: ax = {}
+        if ax:
+            with st.expander("Бали по осях (наскільки впевнено визначено)"):
+                st.json(ax)
+
+        # згенеровані аватари цієї дитини
+        try:
+            av = q("""SELECT name, subtitle, superpower, weakness,
+                             activation_phrase, maturity_at_generation, created_at
+                        FROM generated_avatars WHERE user_id=%(uid)s
+                       ORDER BY created_at DESC""", {"uid": uid})
+        except Exception:
+            av = None
+
+        if av is None or av.empty:
+            st.caption("Аватар ще не генерувався для цієї дитини.")
+        else:
+            for _, a in av.iterrows():
+                st.markdown(
+                    f"**🎭 {a['name']}**  \n"
+                    f"_{a['subtitle']}_  \n\n"
+                    f"⚡ **Суперсила:** {a['superpower']}  \n"
+                    f"🌱 **Зона росту:** {a['weakness']}  \n\n"
+                    f"«{a['activation_phrase']}»  \n"
+                    f"<span style='color:#8a8f99;font-size:13px'>рівень: "
+                    f"{a['maturity_at_generation']} · {a['created_at']:%d.%m.%Y %H:%M}</span>",
+                    unsafe_allow_html=True)
+                st.markdown("---")
