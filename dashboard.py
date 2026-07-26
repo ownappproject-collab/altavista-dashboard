@@ -68,16 +68,6 @@ st.markdown("""
   .stTabs [data-baseweb="tab"] p,
   .stTabs [data-baseweb="tab"] div {font-size:15px !important;}
 
-  /* фірмовий знак перед назвою — помітно більший і теплого кольору */
-  .stTabs [data-baseweb="tab"] p:first-letter,
-  .stTabs [data-baseweb="tab"] div:first-letter {
-    font-size:24px !important; line-height:1; color:var(--cal-earth) !important;
-  }
-  .stTabs [aria-selected="true"] p:first-letter,
-  .stTabs [aria-selected="true"] div:first-letter {
-    color:var(--cal-clay) !important;
-  }
-
   .stTabs [data-baseweb="tab"]:hover {color:var(--cal-ink); background:#FBF8F3;}
 
   /* активна вкладка — теплою заливкою, щоб одразу читалась */
@@ -257,12 +247,12 @@ PLOTLY_TEMPLATE = "plotly_white"
 _is_manager = st.session_state.auth_role in ("admin", "owner")
 if _is_manager:
     tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8, tab9 = st.tabs(
-        ["⬡ Як це працює", "◫ Огляд", "∿ Діалоги", "▽ Воронка", "✧ Якість",
-         "⟳ Методологія", "⬚ Контент", "◌ Учні", "⬢ Профілі", "⌾ Довідка", "⊙ Команда"])
+        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка", "🔐 Команда"])
 else:
     tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8 = st.tabs(
-        ["⬡ Як це працює", "◫ Огляд", "∿ Діалоги", "▽ Воронка", "✧ Якість",
-         "⟳ Методологія", "⬚ Контент", "◌ Учні", "⬢ Профілі", "⌾ Довідка"])
+        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка"])
     tab9 = None
 
 # ============ ОГЛЯД ============
