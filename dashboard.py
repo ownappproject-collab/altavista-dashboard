@@ -62,22 +62,29 @@ st.markdown("""
     gap:2px; border-bottom:1px solid var(--cal-line); padding-bottom:0;
   }
   .stTabs [data-baseweb="tab"] {
-    font-family:'Inter',sans-serif; font-size:13.5px; font-weight:500;
-    color:#6C737B; padding:10px 14px; border-radius:8px 8px 0 0;
+    font-family:'Inter',sans-serif !important; font-size:15px !important; font-weight:500;
+    color:#6C737B; padding:11px 16px; border-radius:10px 10px 0 0;
   }
-  /* фірмовий знак перед назвою: більший, охристий; активний — теракота */
+  .stTabs [data-baseweb="tab"] p,
+  .stTabs [data-baseweb="tab"] div {font-size:15px !important;}
+
+  /* фірмовий знак перед назвою — помітно більший і теплого кольору */
   .stTabs [data-baseweb="tab"] p:first-letter,
   .stTabs [data-baseweb="tab"] div:first-letter {
-    font-size:20px; line-height:1; color:var(--cal-earth); opacity:.6;
+    font-size:24px !important; line-height:1; color:var(--cal-earth) !important;
   }
   .stTabs [aria-selected="true"] p:first-letter,
   .stTabs [aria-selected="true"] div:first-letter {
-    color:var(--cal-clay); opacity:1;
+    color:var(--cal-clay) !important;
   }
+
   .stTabs [data-baseweb="tab"]:hover {color:var(--cal-ink); background:#FBF8F3;}
+
+  /* активна вкладка — теплою заливкою, щоб одразу читалась */
   .stTabs [aria-selected="true"] {
-    color:var(--cal-clay) !important; font-weight:600;
-    background:linear-gradient(180deg,#FDF7F1,#fff);
+    color:var(--cal-clay) !important; font-weight:600 !important;
+    background:#FBEFE3 !important;
+    box-shadow:inset 0 -2px 0 var(--cal-clay);
   }
   .stTabs [data-baseweb="tab-highlight"] {background:var(--cal-clay);}
 
