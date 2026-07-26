@@ -31,6 +31,102 @@ def q(sql, params=None):
 
 st.set_page_config(page_title="Альтавіста · Кабінет", page_icon="🔥", layout="wide")
 
+# ============ ФІРМОВИЙ СТИЛЬ КАБІНЕТУ (єдиний для всіх вкладок) ============
+st.markdown("""
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --cal-cream:#F7F2EA; --cal-clay:#C4642A; --cal-gold:#DBA431;
+    --cal-ink:#1E2930; --cal-slate:#3A3F3D; --cal-earth:#7A5A2C;
+    --cal-line:#E9E0D2;
+  }
+
+  html, body, [class*="css"], .stMarkdown, .stText, p, li, label, span, div {
+    font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+  }
+
+  /* заголовки — характерна антиква, стримано */
+  h1, h2, h3 {
+    font-family:'Fraunces',Georgia,serif !important;
+    color:var(--cal-ink) !important;
+    letter-spacing:-.01em;
+    font-weight:600 !important;
+  }
+  h1 {font-size:32px !important;}
+  h2 {font-size:25px !important;}
+  h3 {font-size:19px !important;}
+
+  /* вкладки: спокійні, з теплим підкресленням активної */
+  .stTabs [data-baseweb="tab-list"] {
+    gap:2px; border-bottom:1px solid var(--cal-line); padding-bottom:0;
+  }
+  .stTabs [data-baseweb="tab"] {
+    font-family:'Inter',sans-serif; font-size:13.5px; font-weight:500;
+    color:#6C737B; padding:10px 15px; border-radius:8px 8px 0 0;
+  }
+  .stTabs [data-baseweb="tab"]:hover {color:var(--cal-ink); background:#FBF8F3;}
+  .stTabs [aria-selected="true"] {
+    color:var(--cal-clay) !important; font-weight:600;
+    background:linear-gradient(180deg,#FDF7F1,#fff);
+  }
+  .stTabs [data-baseweb="tab-highlight"] {background:var(--cal-clay);}
+
+  /* метрики — цифра антиквою, підпис дрібним капітелем */
+  [data-testid="stMetricValue"] {
+    font-family:'Fraunces',Georgia,serif; font-weight:700;
+    color:var(--cal-ink); font-size:29px;
+  }
+  [data-testid="stMetricLabel"] {
+    font-size:11px !important; letter-spacing:.13em; text-transform:uppercase;
+    color:var(--cal-earth) !important; font-weight:600;
+  }
+
+  /* кнопки */
+  .stButton > button {
+    font-family:'Inter',sans-serif; font-weight:500; font-size:14px;
+    border-radius:9px; border:1px solid var(--cal-line);
+    color:var(--cal-ink); transition:.16s;
+  }
+  .stButton > button:hover {
+    border-color:var(--cal-clay); color:var(--cal-clay); background:#FDF7F1;
+  }
+  .stButton > button[kind="primary"] {
+    background:var(--cal-clay); border-color:var(--cal-clay); color:#fff;
+  }
+  .stButton > button[kind="primary"]:hover {background:#A9531F; color:#fff;}
+
+  /* поля вводу */
+  .stTextInput input, .stTextArea textarea, .stSelectbox [data-baseweb="select"] > div {
+    border-radius:9px !important; border-color:var(--cal-line) !important;
+    font-family:'Inter',sans-serif;
+  }
+  .stTextInput input:focus, .stTextArea textarea:focus {
+    border-color:var(--cal-clay) !important; box-shadow:0 0 0 2px rgba(196,100,42,.10) !important;
+  }
+
+  /* розгортайки */
+  .streamlit-expanderHeader, [data-testid="stExpander"] summary {
+    font-family:'Inter',sans-serif; font-weight:500; font-size:14px;
+    color:var(--cal-ink); border-radius:9px;
+  }
+  [data-testid="stExpander"] {border:1px solid var(--cal-line); border-radius:10px;}
+
+  /* таблиці */
+  [data-testid="stDataFrame"] {border:1px solid var(--cal-line); border-radius:10px;}
+
+  /* підписи і розділювачі */
+  [data-testid="stCaptionContainer"] {color:#8A9096; font-size:13px;}
+  hr {border-color:var(--cal-line); margin:1.1rem 0;}
+
+  /* бокова панель */
+  section[data-testid="stSidebar"] {background:var(--cal-cream); border-right:1px solid var(--cal-line);}
+
+  /* сповіщення */
+  .stAlert {border-radius:10px; border-width:1px;}
+</style>
+""", unsafe_allow_html=True)
+
 # логотип проєкту (в кутку кабінету); не падаємо, якщо файла нема
 try:
     st.logo("logo.png")
@@ -144,12 +240,12 @@ PLOTLY_TEMPLATE = "plotly_white"
 _is_manager = st.session_state.auth_role in ("admin", "owner")
 if _is_manager:
     tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8, tab9 = st.tabs(
-        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка", "🔐 Команда"])
+        ["Як це працює", "Огляд", "Діалоги", "Воронка", "Якість",
+         "Методологія", "Контент", "Учні", "Профілі", "Довідка", "Команда"])
 else:
     tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8 = st.tabs(
-        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка"])
+        ["Як це працює", "Огляд", "Діалоги", "Воронка", "Якість",
+         "Методологія", "Контент", "Учні", "Профілі", "Довідка"])
     tab9 = None
 
 # ============ ОГЛЯД ============
@@ -904,7 +1000,7 @@ with tab7:
 # ============ 🔐 КОМАНДА (тільки admin/owner) ============
 if tab9 is not None:
     with tab9:
-        st.subheader("🔐 Команда кабінету")
+        st.subheader("Команда кабінету")
         st.caption("Доступи до цього кабінету: хто може заходити, ролі, паролі. "
                    "Це користувачі КАБІНЕТУ (не діти — діти у вкладці Учні).")
 
@@ -921,7 +1017,7 @@ if tab9 is not None:
 
         # ---- створити користувача ----
         with colA:
-            st.markdown("#### ➕ Додати учасника")
+            st.markdown("#### Додати учасника")
             with st.form("add_team_user", clear_on_submit=True):
                 new_email = st.text_input("Email (логін)")
                 new_pw = st.text_input("Пароль", type="password",
@@ -948,7 +1044,7 @@ if tab9 is not None:
 
         # ---- змінити пароль / видалити ----
         with colB:
-            st.markdown("#### 🔑 Пароль / видалення")
+            st.markdown("#### Пароль і видалення")
             emails = team["email"].tolist()
             sel_email = st.selectbox("Учасник:", emails)
             with st.form("chpw_form"):
@@ -979,7 +1075,7 @@ if tab9 is not None:
 
 # ============ 🎭 ПРОФІЛІ (4 осі + згенеровані аватари) ============
 with tab_prof:
-    st.subheader("🎭 Профілі дітей та згенеровані аватари")
+    st.subheader("Профілі дітей та згенеровані аватари")
     st.caption("Що система визначила по кожній дитині: тип навчання, драйвер, "
                "рівень зрілості — і який аватар згенерував ШІ. "
                "Тут ви перевіряєте, чи діагностика влучає в реальність.")
@@ -1019,7 +1115,7 @@ with tab_prof:
                 st.code(_prof_err)
     else:
         # ---- зведення: розподіл типів навчання ----
-        st.markdown("#### 📊 Розподіл типів навчання")
+        st.markdown("#### Розподіл типів навчання")
         dist = prof["learning_type"].fillna("— не визначено").value_counts().reset_index()
         dist.columns = ["Тип навчання", "Дітей"]
         c1, c2 = st.columns([1, 1])
@@ -1038,7 +1134,7 @@ with tab_prof:
                        "під 4 осі (вкладка Контент → Діагностика).")
 
         st.markdown("---")
-        st.markdown("#### 👤 Профіль по кожній дитині")
+        st.markdown("#### Профіль по кожній дитині")
         table = prof.copy()
         table["Дитина"] = table.apply(
             lambda r: (str(r["name"]).strip() if r["name"] else f"Дитина #{r['id']}"), axis=1)
@@ -1049,7 +1145,7 @@ with tab_prof:
 
         # ---- детальна картка обраної дитини ----
         st.markdown("---")
-        st.markdown("#### 🔍 Детально: профіль + аватар")
+        st.markdown("#### Детально: профіль і аватар")
         names = table["Дитина"].tolist()
         pick = st.selectbox("Оберіть дитину:", names, key="prof_pick")
         row = table[table["Дитина"] == pick].iloc[0]
