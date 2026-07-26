@@ -1105,4 +1105,4 @@ with tab_prof:
                     f"<span style='color:#8a8f99;font-size:13px'>рівень: "
                     f"{a['maturity_at_generation']} · {a['created_at']:%d.%m.%Y %H:%M}</span>",
                     unsafe_allow_html=True)
-                st.markdown("---")
+                st.markdown("---") 
