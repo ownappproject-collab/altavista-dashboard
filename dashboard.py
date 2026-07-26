@@ -143,12 +143,12 @@ PLOTLY_TEMPLATE = "plotly_white"
 
 _is_manager = st.session_state.auth_role in ("admin", "owner")
 if _is_manager:
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8, tab9 = st.tabs(
-        ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
+    tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8, tab9 = st.tabs(
+        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
          "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка", "🔐 Команда"])
 else:
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8 = st.tabs(
-        ["📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
+    tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8 = st.tabs(
+        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
          "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка"])
     tab9 = None
 
@@ -1105,4 +1105,181 @@ with tab_prof:
                     f"<span style='color:#8a8f99;font-size:13px'>рівень: "
                     f"{a['maturity_at_generation']} · {a['created_at']:%d.%m.%Y %H:%M}</span>",
                     unsafe_allow_html=True)
-                st.markdown("---") 
+                st.markdown("---")
+
+# ============ 🧭 ЯК ЦЕ ПРАЦЮЄ ============
+with tab_how:
+    # --- живі цифри з бази (з відкатом, якщо чогось нема) ---
+    def _safe_scalar(sql, default=0):
+        try:
+            df = q(sql)
+            return int(df.iloc[0, 0]) if not df.empty else default
+        except Exception:
+            return default
+
+    n_kids     = _safe_scalar("SELECT count(*) FROM users")
+    n_msgs     = _safe_scalar("SELECT count(*) FROM messages")
+    n_profiles = _safe_scalar("SELECT count(*) FROM profiles WHERE learning_type IS NOT NULL")
+    n_avatars  = _safe_scalar("SELECT count(*) FROM generated_avatars")
+    n_hubs     = _safe_scalar("SELECT count(*) FROM hubs WHERE active")
+
+    st.markdown("""
+    <style>
+      .how-wrap {font-family: -apple-system, 'Segoe UI', sans-serif;}
+      .how-lead {font-size:17px; color:#4a5058; max-width:74ch; line-height:1.6; margin-bottom:6px;}
+      .flow {display:flex; flex-wrap:wrap; align-items:stretch; gap:0; margin:18px 0 6px;}
+      .node {flex:1 1 150px; min-width:150px; background:#fff; border:1px solid #e6e0d4;
+             border-radius:10px; padding:14px 14px 12px; position:relative;}
+      .node .ttl {font-weight:700; font-size:15px; margin-bottom:3px;}
+      .node .sub {font-size:12.5px; color:#8a8f99; line-height:1.45;}
+      .node .num {font-size:19px; font-weight:700; color:#e8622c; margin-top:6px;}
+      .arrow {display:flex; align-items:center; justify-content:center; width:26px;
+              color:#c9a227; font-size:19px; font-weight:700;}
+      .node.ai {border-color:#e8622c; box-shadow:0 2px 14px rgba(232,98,44,.10);}
+      .node.soon {border-style:dashed; opacity:.72;}
+      .legend {font-size:13px; color:#8a8f99; margin-top:4px;}
+      .step {display:flex; gap:14px; padding:14px 0; border-bottom:1px dashed #e6e0d4;}
+      .step:last-child {border-bottom:none;}
+      .step .idx {flex:0 0 30px; height:30px; border-radius:50%; background:#fdeee4;
+                  color:#e8622c; font-weight:700; display:flex; align-items:center;
+                  justify-content:center; font-size:14px;}
+      .step .body {flex:1;}
+      .step .head {font-weight:700; font-size:15.5px; margin-bottom:2px;}
+      .step .who {font-size:12px; color:#3f7d5c; background:#e8f2ec; padding:2px 8px;
+                  border-radius:20px; margin-left:8px; font-weight:600;}
+      .step .who.auto {color:#8a5cf6; background:#f0e9ff;}
+      .step .txt {font-size:14.5px; color:#5a616b; line-height:1.55;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="how-wrap">', unsafe_allow_html=True)
+    st.subheader("🧭 Як працює CALABI")
+    st.markdown(
+        '<div class="how-lead">Система знаходить справжній інтерес дитини і веде її від першої '
+        'іскри до власної мети. Методолог наповнює зміст і спостерігає, ШІ веде діалог, '
+        'дитина рухається своїм шляхом.</div>', unsafe_allow_html=True)
+
+    # ---- жива схема потоку ----
+    st.markdown(f"""
+    <div class="flow">
+      <div class="node">
+        <div class="ttl">👋 Знайомство</div>
+        <div class="sub">Дитина заходить у Telegram-бот</div>
+        <div class="num">{n_kids}</div>
+        <div class="sub">дітей у системі</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node">
+        <div class="ttl">❓ Діагностика</div>
+        <div class="sub">16 питань, без правильних відповідей</div>
+        <div class="num">{n_profiles}</div>
+        <div class="sub">профілів визначено</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node ai">
+        <div class="ttl">🤖 ШІ-профайлер</div>
+        <div class="sub">Читає зміст відповідей → тип навчання, драйвер, зрілість</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node ai">
+        <div class="ttl">🎭 Аватар</div>
+        <div class="sub">ШІ генерує унікального персонажа під профіль</div>
+        <div class="num">{n_avatars}</div>
+        <div class="sub">згенеровано</div>
+      </div>
+    </div>
+    <div class="flow">
+      <div class="node">
+        <div class="ttl">🗂 Вибір теми</div>
+        <div class="sub">Хаби, підтеми, тригерні фрази методолога</div>
+        <div class="num">{n_hubs}</div>
+        <div class="sub">напрямків</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node ai">
+        <div class="ttl">🔥 Іскра</div>
+        <div class="sub">Живий діалог: провокація, факт, питання вглиб</div>
+        <div class="num">{n_msgs}</div>
+        <div class="sub">реплік у системі</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node soon">
+        <div class="ttl">🎯 Вектор</div>
+        <div class="sub">Кристалізація мети · у розробці</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="node soon">
+        <div class="ttl">🔮 Таємниця</div>
+        <div class="sub">Глибинне дослідження · далі</div>
+      </div>
+    </div>
+    <div class="legend">🟠 помаранчеві блоки — працює ШІ · пунктирні — наступні етапи розробки ·
+    цифри оновлюються з бази в реальному часі</div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("#### Порядок роботи")
+    st.markdown("""
+    <div class="step">
+      <div class="idx">1</div>
+      <div class="body">
+        <div class="head">Наповнюєте зміст<span class="who">методолог</span></div>
+        <div class="txt">Вкладка <b>📝 Контент</b>: питання діагностики, хаби з підтемами,
+        тригерні фрази (те, що бот каже одразу після вибору теми), тексти входу.
+        Вкладка <b>⚙️ Методологія</b>: промпти Провідника — як саме ШІ говорить з дитиною.
+        Зберегли — бот відповідає по-новому одразу, без програміста.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="idx">2</div>
+      <div class="body">
+        <div class="head">Дитина проходить вхід<span class="who auto">автоматично</span></div>
+        <div class="txt">Знайомство → 16 питань діагностики → ШІ аналізує <b>зміст</b> відповідей
+        і визначає профіль (тип навчання, драйвер, рівень зрілості) → генерує унікального
+        аватара-персонажа під цей профіль. Кожна дитина отримує свого, не шаблон.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="idx">3</div>
+      <div class="body">
+        <div class="head">Дитина обирає напрям<span class="who auto">автоматично</span></div>
+        <div class="txt">Або одразу пише свою тему, або дивиться напрямки. Після вибору хаба
+        бот показує вашу тригерну фразу-провокацію і підтеми — і веде діалог по темі,
+        а не перепитує «що тобі цікаво».</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="idx">4</div>
+      <div class="body">
+        <div class="head">Ви спостерігаєте і звіряєте<span class="who">методолог</span></div>
+        <div class="txt">Вкладка <b>🎭 Профілі</b>: який профіль система визначила по кожній дитині,
+        <b>чому</b> так вирішив ШІ і наскільки впевнено — плюс усі відповіді дитини.
+        Вкладка <b>💬 Діалоги</b>: реальні розмови. <b>✅ Якість</b> і <b>🎯 Воронка</b>:
+        хто зачепився, хто дійшов далі.</div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="idx">5</div>
+      <div class="body">
+        <div class="head">Система вчиться вашими руками<span class="who">разом</span></div>
+        <div class="txt">Бачите, що діагностика промахнулась або діти застрягають в одному місці —
+        правите питання і промпти в кабінеті. Дані накопичуються: профіль → який прийом спрацював →
+        де зачепилось. Це і є той актив, який неможливо скопіювати ззовні.</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("#### Що під капотом")
+    cA, cB, cC = st.columns(3)
+    with cA:
+        st.markdown("**🤖 Модель**  \nClaude Sonnet 5 з кешуванням промптів — "
+                    "витрати на ШІ тримаються в межах кількох доларів на місяць.")
+    with cB:
+        st.markdown("**🗄 Дані**  \nPostgreSQL: діти, сесії, репліки, профілі, аватари. "
+                    "Зміст відділений від коду — методолог змінює все сам.")
+    with cC:
+        st.markdown("**☁️ Інфраструктура**  \nБот працює 24/7 у хмарі, кабінет — окремий "
+                    "застосунок під паролем. Дані дітей закриті від сторонніх.")
+
+    st.markdown('</div>', unsafe_allow_html=True)
