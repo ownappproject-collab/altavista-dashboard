@@ -162,9 +162,60 @@ def _check_login(email: str, password: str):
     except Exception:
         return None
 
+# ---- довга сесія: токен у посиланні + запис у базі (30 днів) ----
+import secrets as _secrets
+from datetime import datetime as _dt, timedelta as _td
+
+SESSION_DAYS = 30
+
+def _session_create(email, role):
+    """Створює токен сесії, повертає його."""
+    token = _secrets.token_urlsafe(32)
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""INSERT INTO dashboard_sessions (token, email, role, expires_at)
+                       VALUES (%s,%s,%s,%s)""",
+                    (token, email, role, _dt.utcnow() + _td(days=SESSION_DAYS)))
+        conn.commit(); conn.close()
+        return token
+    except Exception:
+        return None
+
+def _session_check(token):
+    """Повертає (email, role) якщо токен живий, інакше None."""
+    if not token:
+        return None
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("""SELECT email, role FROM dashboard_sessions
+                        WHERE token=%s AND expires_at > now()""", (token,))
+        row = cur.fetchone(); conn.close()
+        return (row[0], row[1]) if row else None
+    except Exception:
+        return None
+
+def _session_drop(token):
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute("DELETE FROM dashboard_sessions WHERE token=%s", (token,))
+        conn.commit(); conn.close()
+    except Exception:
+        pass
+
 if "auth_role" not in st.session_state:
     st.session_state.auth_role = None
     st.session_state.auth_email = None
+    st.session_state.auth_token = None
+
+# автовхід за токеном з посилання (переживає перезавантаження і обриви зв'язку)
+if not st.session_state.auth_role:
+    _t = st.query_params.get("t")
+    if isinstance(_t, list):
+        _t = _t[0] if _t else None
+    _found = _session_check(_t)
+    if _found:
+        st.session_state.auth_email, st.session_state.auth_role = _found
+        st.session_state.auth_token = _t
 
 if not st.session_state.auth_role:
     # компактна картка входу по центру
@@ -198,6 +249,10 @@ if not st.session_state.auth_role:
         if role:
             st.session_state.auth_role = role
             st.session_state.auth_email = email.strip().lower()
+            _tok = _session_create(st.session_state.auth_email, role)
+            if _tok:
+                st.session_state.auth_token = _tok
+                st.query_params["t"] = _tok
             st.rerun()
         else:
             st.error("Невірний email або пароль.")
@@ -207,8 +262,14 @@ if not st.session_state.auth_role:
 with st.sidebar:
     st.caption(f"👤 {st.session_state.auth_email} · {st.session_state.auth_role}")
     if st.button("🚪 Вийти"):
+        _session_drop(st.session_state.get("auth_token"))
         st.session_state.auth_role = None
         st.session_state.auth_email = None
+        st.session_state.auth_token = None
+        try:
+            del st.query_params["t"]
+        except Exception:
+            pass
         st.rerun()
 
 
@@ -1162,6 +1223,27 @@ with tab_prof:
         cA.metric("Тип навчання", row["learning_type"] or "—")
         cB.metric("Драйвер", row["driver"] or "—")
         cC.metric("Зрілість", row["maturity"] or "—")
+
+        # як саме профіль впливає на розмову (додається до промпту Провідника)
+        if row["learning_type"] or row["driver"]:
+            with st.expander("Як Провідник адаптує розмову під цю дитину"):
+                try:
+                    import sys as _sys
+                    _sys.path.insert(0, ".")
+                    from ai.profile_tone import LEARNING_STYLE, DRIVER_HOOK, MATURITY_LEVEL
+                    blocks = []
+                    lt = (row["learning_type"] or "").lower()
+                    dr = (row["driver"] or "").lower()
+                    mt = (row["maturity"] or "").lower()
+                    if lt in LEARNING_STYLE: blocks.append(LEARNING_STYLE[lt])
+                    if dr in DRIVER_HOOK: blocks.append(DRIVER_HOOK[dr])
+                    if mt in MATURITY_LEVEL: blocks.append(MATURITY_LEVEL[mt])
+                    st.code("\n\n".join(blocks) or "—", language=None)
+                    st.caption("Ці інструкції додаються до промпту Провідника "
+                               "при кожній відповіді саме цій дитині.")
+                except Exception:
+                    st.caption("Правила адаптації недоступні в цьому середовищі "
+                               "(файл ai/profile_tone.py лежить у репозиторії бота).")
 
         # бали по осях — показують, наскільки впевнено визначився профіль
         ax = row["axis_scores"]
