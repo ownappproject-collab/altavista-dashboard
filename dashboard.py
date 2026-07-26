@@ -1066,8 +1066,22 @@ with tab_prof:
             try: ax = json.loads(ax)
             except Exception: ax = {}
         if ax:
-            with st.expander("Бали по осях (наскільки впевнено визначено)"):
-                st.json(ax)
+            # висновок ІІ-профайлера — головне для валідації методики
+            ai_a = ax.get("ai_analysis") or {}
+            if ai_a:
+                conf = ai_a.get("confidence")
+                st.markdown(f"**🤖 Висновок ШІ:** {ai_a.get('reasoning','—')}")
+                if conf is not None:
+                    try:
+                        st.progress(float(conf), text=f"Впевненість визначення: {float(conf):.0%}")
+                    except Exception:
+                        pass
+            with st.expander("Відповіді дитини на діагностику (сирі дані)"):
+                for i, a in enumerate(ax.get("answers") or [], 1):
+                    st.markdown(f"**{i}. {a.get('question','')}**  \n→ _{a.get('answer','')}_")
+                if ax.get("weights"):
+                    st.markdown("**Ваги від методолога:**")
+                    st.json(ax["weights"])
 
         # згенеровані аватари цієї дитини
         try:
