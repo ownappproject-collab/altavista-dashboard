@@ -132,6 +132,17 @@ st.markdown("""
 
   /* сповіщення */
   .stAlert {border-radius:10px; border-width:1px;}
+
+  /* службові елементи Streamlit Cloud — команді проєкту не потрібні */
+  [data-testid="stToolbar"]{display:none !important;}
+  [data-testid="stToolbarActions"]{display:none !important;}
+  [data-testid="stActionButtonIcon"]{display:none !important;}
+  [data-testid="stAppDeployButton"]{display:none !important;}
+  [data-testid="stMainMenu"]{display:none !important;}
+  [data-testid="manage-app-button"]{display:none !important;}
+  [data-testid="stStatusWidget"]{visibility:hidden;}
+  header{background:transparent !important;}
+  footer{visibility:hidden !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1598,4 +1609,4 @@ with tab5:
         st.caption("Ціни за 1 млн токенів (вхід/вихід). Для звичайних діалогів з дітьми "
                    "Sonnet 5 достатньо: різниця з дорожчими моделями майже непомітна, "
                    "а рахунок відрізняється в рази. Fable має сенс для складних "
-                   "експериментів, не для щоденної роботи.") 
+                   "експериментів, не для щоденної роботи.")
