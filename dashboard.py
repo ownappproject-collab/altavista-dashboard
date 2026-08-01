@@ -1,3 +1,4 @@
+# ФАЙЛ: репозиторій кабінету / dashboard.py
 """
 АЛЬТАВІСТА — Кабінет спостереження v2 (SaaS-рівень).
 Для автора методології: спостерігати, як працює методологія вживу.
@@ -1506,3 +1507,46 @@ with tab_how:
     with c3:
         st.markdown("**Доступ**  \nБот працює цілодобово, кабінет — під паролем, "
                     "з ролями. Дані дітей закриті від сторонніх.")
+
+# ============ ВИБІР МОДЕЛІ ШІ (у вкладці Методологія) ============
+with tab5:
+    st.markdown("---")
+    st.markdown("#### Модель ШІ")
+    st.caption("Який «мозок» використовує Провідник. Зміна діє одразу, без перезапуску.")
+
+    _MODELS = {
+        "": "За замовчуванням (Sonnet 5)",
+        "claude-sonnet-5": "Sonnet 5 — щоденна робота ($2/$10 за 1М токенів)",
+        "claude-opus-5": "Opus 5 — складніші задачі, вдвічі дорожча ($5/$25)",
+        "claude-fable-5": "Fable 5 — найпотужніша, у 5 разів дорожча ($10/$50)",
+        "claude-haiku-4-5-20251001": "Haiku 4.5 — найшвидша і найдешевша ($1/$5)",
+    }
+
+    try:
+        _cur = q("SELECT value FROM app_settings WHERE key='ai_model'")
+        _current = _cur.iloc[0, 0] if not _cur.empty else ""
+        _current = _current or ""
+        _has_settings = True
+    except Exception:
+        _current, _has_settings = "", False
+
+    if not _has_settings:
+        st.info("Таблиця налаштувань ще не створена — попросіть запустити міграцію add_settings.")
+    else:
+        _keys = list(_MODELS.keys())
+        _idx = _keys.index(_current) if _current in _keys else 0
+        _pick = st.selectbox("Модель:", _keys, index=_idx,
+                             format_func=lambda k: _MODELS[k], key="ai_model_pick")
+        if st.button("Зберегти модель"):
+            cn = conn_w(); cur = cn.cursor()
+            cur.execute("""INSERT INTO app_settings (key, value, updated_at)
+                           VALUES ('ai_model', %s, now())
+                           ON CONFLICT (key) DO UPDATE
+                             SET value=EXCLUDED.value, updated_at=now()""", (_pick,))
+            cn.commit(); cn.close(); q.clear()
+            st.success(f"Збережено: {_MODELS[_pick]}")
+
+        st.caption("Ціни за 1 млн токенів (вхід/вихід). Для звичайних діалогів з дітьми "
+                   "Sonnet 5 достатньо: різниця з дорожчими моделями майже непомітна, "
+                   "а рахунок відрізняється в рази. Fable має сенс для складних "
+                   "експериментів, не для щоденної роботи.")
