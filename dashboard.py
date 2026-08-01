@@ -545,9 +545,18 @@ with tab2:
         else:
             st.caption(f"Прямого посилання немає (без @username). tg_id: {sel_row['tg_id']}")
 
-        dialog = q("""SELECT role, text, state, ts FROM messages m
+        dialog = q("""SELECT role, text, state, ts, markers FROM messages m
                       JOIN sessions s ON s.id=m.session_id
                       WHERE s.user_id=%(uid)s ORDER BY m.ts""", {"uid": uid})
+
+        # короткі назви моделей для підпису під реплікою
+        _MODEL_SHORT = {
+            "claude-sonnet-5": "Sonnet 5",
+            "claude-opus-5": "Opus 5",
+            "claude-fable-5": "Fable 5",
+            "claude-haiku-4-5-20251001": "Haiku 4.5",
+            "claude-sonnet-4-6": "Sonnet 4.6",
+        }
 
         # детект зацикливания: ИИ повторяет начало фразы
         prev_ai_start = None
@@ -564,8 +573,17 @@ with tab2:
                 if prev_ai_start and start == prev_ai_start:
                     flag = "<span class='flag flag-warn'>повтор зачину</span>"
                 prev_ai_start = start
+                # яка модель відповідала (пишеться в markers при генерації)
+                _mk = m.get("markers")
+                if isinstance(_mk, str):
+                    try: _mk = json.loads(_mk)
+                    except Exception: _mk = {}
+                _model = (_mk or {}).get("model", "")
+                _label = _MODEL_SHORT.get(_model, _model)
+                _model_tag = (f" · <span style='color:#C4642A;font-weight:600'>"
+                              f"{_label}</span>") if _label else ""
                 st.markdown(f"<div class='meta' style='text-align:right'>"
-                            f"🔥 Провідник · {m['state']} · {ts}{flag}</div>"
+                            f"🔥 Провідник · {m['state']} · {ts}{_model_tag}{flag}</div>"
                             f"<div class='bubble-ai'>{t}</div>", unsafe_allow_html=True)
 
 # ============ ВОРОНКА ============
