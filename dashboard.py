@@ -610,7 +610,7 @@ with tab2:
                     except Exception: _mk = {}
                 _model = (_mk or {}).get("model", "")
                 _label = _MODEL_SHORT.get(_model, _model)
-                _model_tag = (f" · <span style='color:#8A9096'>модель:</span> "
+                _model_tag = (f" · <span style='color:#8A9096'>модель ШІ:</span> "
                               f"<span style='color:#C4642A;font-weight:600'>"
                               f"{_label}</span>") if _label else ""
                 st.markdown(f"<div class='meta' style='text-align:right'>"
@@ -1598,4 +1598,4 @@ with tab5:
         st.caption("Ціни за 1 млн токенів (вхід/вихід). Для звичайних діалогів з дітьми "
                    "Sonnet 5 достатньо: різниця з дорожчими моделями майже непомітна, "
                    "а рахунок відрізняється в рази. Fable має сенс для складних "
-                   "експериментів, не для щоденної роботи.")
+                   "експериментів, не для щоденної роботи.") 
