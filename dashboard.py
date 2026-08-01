@@ -545,9 +545,33 @@ with tab2:
         else:
             st.caption(f"Прямого посилання немає (без @username). tg_id: {sel_row['tg_id']}")
 
-        dialog = q("""SELECT role, text, state, ts, markers FROM messages m
-                      JOIN sessions s ON s.id=m.session_id
-                      WHERE s.user_id=%(uid)s ORDER BY m.ts""", {"uid": uid})
+        # ---- фільтри перегляду, щоб діалог не був суцільною стрічкою ----
+        fc1, fc2, fc3 = st.columns([1.2, 1, 1])
+        with fc1:
+            _period = st.selectbox("Період:",
+                ["Останні 7 днів", "Останні 30 днів", "Весь час"],
+                index=0, key=f"dlg_period_{uid}")
+        with fc2:
+            _limit = st.selectbox("Показати реплік:", [30, 50, 100, 300],
+                                  index=1, key=f"dlg_limit_{uid}")
+        with fc3:
+            _order = st.selectbox("Порядок:", ["Спочатку нові", "Спочатку старі"],
+                                  index=0, key=f"dlg_order_{uid}")
+
+        _days = {"Останні 7 днів": 7, "Останні 30 днів": 30, "Весь час": None}[_period]
+        _where_period = "AND m.ts > now() - interval '%d days'" % _days if _days else ""
+
+        dialog = q(f"""SELECT role, text, state, ts, markers, s.id AS sess
+                        FROM messages m
+                        JOIN sessions s ON s.id=m.session_id
+                       WHERE s.user_id=%(uid)s {_where_period}
+                       ORDER BY m.ts DESC
+                       LIMIT {int(_limit)}""", {"uid": uid})
+        # з бази прийшли останні N у зворотному порядку — розвертаємо за потреби
+        if _order == "Спочатку старі":
+            dialog = dialog.iloc[::-1]
+
+        st.caption(f"Показано реплік: {len(dialog)}")
 
         # короткі назви моделей для підпису під реплікою
         _MODEL_SHORT = {
@@ -560,7 +584,13 @@ with tab2:
 
         # детект зацикливания: ИИ повторяет начало фразы
         prev_ai_start = None
+        _prev_sess = None
         for _, m in dialog.iterrows():
+            # візуальний розрив між різними сесіями
+            if _prev_sess is not None and m.get("sess") != _prev_sess:
+                st.markdown("<hr style='border:none;border-top:1px dashed #E9E0D2;"
+                            "margin:18px 0'>", unsafe_allow_html=True)
+            _prev_sess = m.get("sess")
             t = m["text"]
             ts = pd.to_datetime(m["ts"]).strftime("%d.%m %H:%M")
             if m["role"] == "child":
