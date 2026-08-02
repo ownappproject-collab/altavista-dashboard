@@ -604,7 +604,12 @@ with tab2:
             _prev_sess = m.get("sess")
             t = m["text"]
             ts = pd.to_datetime(m["ts"]).strftime("%d.%m %H:%M")
-            if m["role"] == "child":
+            if m["role"] == "system":
+                # службова позначка (напр. оцінка готовності до Вектора)
+                st.markdown(
+                    f"<div style='text-align:center;margin:10px 0;font-size:12px;"
+                    f"color:#8A9096'>⋯ {t} · {ts} ⋯</div>", unsafe_allow_html=True)
+            elif m["role"] == "child":
                 st.markdown(f"<div class='meta'>🧒 {ts}</div>"
                             f"<div class='bubble-child'>{t}</div>", unsafe_allow_html=True)
             else:
