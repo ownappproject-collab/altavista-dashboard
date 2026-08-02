@@ -1614,4 +1614,44 @@ with tab5:
         st.caption("Ціни за 1 млн токенів (вхід/вихід). Для звичайних діалогів з дітьми "
                    "Sonnet 5 достатньо: різниця з дорожчими моделями майже непомітна, "
                    "а рахунок відрізняється в рази. Fable має сенс для складних "
-                   "експериментів, не для щоденної роботи.") 
+                   "експериментів, не для щоденної роботи.")
+
+# ============ ПРАВИЛА АДАПТАЦІЇ ТОНУ (вкладка Методологія) ============
+with tab5:
+    st.markdown("---")
+    st.markdown("#### Як Провідник підлаштовується під дитину")
+    st.caption("Ці правила додаються до промпту при кожній відповіді — залежно від того, "
+               "що система визначила про дитину. Змінюєте тут — бот говорить інакше одразу.")
+
+    _AXIS_TITLE = {
+        "learning_type": "Тип навчання",
+        "driver": "Драйвер мотивації",
+        "maturity": "Рівень зрілості",
+        "age": "Вік",
+    }
+
+    try:
+        _rules = q("SELECT id, axis, key, label, rule, ord FROM tone_rules "
+                   "WHERE active ORDER BY axis, ord")
+        _has_rules = True
+    except Exception:
+        _rules, _has_rules = None, False
+
+    if not _has_rules or _rules is None or _rules.empty:
+        st.info("Правила ще не перенесені в базу — попросіть запустити міграцію add_tone_rules.")
+    else:
+        _axis_pick = st.radio("Розділ:", list(_AXIS_TITLE.keys()),
+                              format_func=lambda a: _AXIS_TITLE[a],
+                              horizontal=True, key="tone_axis")
+        _sub = _rules[_rules["axis"] == _axis_pick]
+
+        for _, r in _sub.iterrows():
+            with st.expander(r["label"]):
+                _txt = st.text_area("Правило:", value=r["rule"],
+                                    key=f"tone_{r['id']}", height=160)
+                if st.button("Зберегти", key=f"tone_save_{r['id']}"):
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("UPDATE tone_rules SET rule=%s, updated_at=now() "
+                                "WHERE id=%s", (_txt.strip(), int(r["id"])))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success("Збережено — бот вже говорить по-новому")
