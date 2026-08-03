@@ -319,13 +319,17 @@ PLOTLY_TEMPLATE = "plotly_white"
 
 _is_manager = st.session_state.auth_role in ("admin", "owner")
 if _is_manager:
-    tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8, tab9 = st.tabs(
+    (tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof,
+     tab_eval, tab8, tab9) = st.tabs(
         ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка", "🔐 Команда"])
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі",
+         "🧪 Тести якості", "❓ Довідка", "🔐 Команда"])
 else:
-    tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof, tab8 = st.tabs(
+    (tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof,
+     tab_eval, tab8) = st.tabs(
         ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі", "❓ Довідка"])
+         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі",
+         "🧪 Тести якості", "❓ Довідка"])
     tab9 = None
 
 # ============ ОГЛЯД ============
@@ -1655,3 +1659,105 @@ with tab5:
                                 "WHERE id=%s", (_txt.strip(), int(r["id"])))
                     cn.commit(); cn.close(); q.clear()
                     st.success("Збережено — бот вже говорить по-новому")
+
+# ============ ТЕСТИ ЯКОСТІ ============
+with tab_eval:
+    st.subheader("Тести якості відповідей")
+    st.caption("Набір типових ситуацій, які проганяються через Провідника. "
+               "Показує цифрами, чи стало краще після зміни моделі або промпту — "
+               "замість «прочитаю і відчую різницю».")
+
+    try:
+        _cases = q("SELECT id, title, note, child_text, state FROM eval_cases "
+                   "WHERE active ORDER BY id")
+        _runs = q("""SELECT id, model, started_at, cases_n, score
+                       FROM eval_runs ORDER BY started_at DESC LIMIT 20""")
+        _has_eval = True
+    except Exception:
+        _cases, _runs, _has_eval = None, None, False
+
+    if not _has_eval:
+        st.info("Таблиці ще не створені — попросіть запустити міграцію add_quality_eval.")
+    else:
+        # ---- історія прогонів ----
+        if _runs is not None and not _runs.empty:
+            st.markdown("#### Історія прогонів")
+            _show = _runs.copy()
+            _show["Бал"] = (_show["score"].astype(float) * 100).round(0).astype(int).astype(str) + "%"
+            _show = _show.rename(columns={"model": "Модель", "started_at": "Коли",
+                                          "cases_n": "Випадків"})
+            st.dataframe(_show[["Коли", "Модель", "Випадків", "Бал"]],
+                         use_container_width=True, hide_index=True)
+
+            # порівняння двох останніх
+            if len(_runs) >= 2:
+                a, b = _runs.iloc[0], _runs.iloc[1]
+                delta = (float(a["score"]) - float(b["score"])) * 100
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Останній прогін", f"{float(a['score'])*100:.0f}%", f"{delta:+.0f}%")
+                c2.metric("Модель", a["model"] or "—")
+                c3.metric("Попередній", f"{float(b['score'])*100:.0f}%")
+
+        # ---- деталі обраного прогону ----
+        if _runs is not None and not _runs.empty:
+            st.markdown("---")
+            st.markdown("#### Деталі прогону")
+            _opts = {int(r["id"]): f"{r['started_at']:%d.%m %H:%M} · {r['model']} · "
+                                   f"{float(r['score'])*100:.0f}%"
+                     for _, r in _runs.iterrows()}
+            _pick = st.selectbox("Прогін:", list(_opts.keys()),
+                                 format_func=lambda i: _opts[i], key="eval_run_pick")
+            _res = q("""SELECT c.title, r.answer, r.checks, r.score, r.verdict
+                          FROM eval_results r JOIN eval_cases c ON c.id=r.case_id
+                         WHERE r.run_id=%(rid)s ORDER BY c.id""", {"rid": _pick})
+            for _, row in _res.iterrows():
+                _sc = float(row["score"])
+                _icon = "🟢" if _sc >= 0.8 else ("🟡" if _sc >= 0.5 else "🔴")
+                with st.expander(f"{_icon} {row['title']} · {_sc*100:.0f}%"):
+                    st.markdown(f"**Відповідь Провідника:**  \n{row['answer']}")
+                    _ch = row["checks"]
+                    if isinstance(_ch, str):
+                        try: _ch = json.loads(_ch)
+                        except Exception: _ch = {}
+                    if _ch:
+                        _ok = [k.replace("_", " ") for k, v in _ch.items() if v]
+                        _bad = [k.replace("_", " ") for k, v in _ch.items() if not v]
+                        if _ok:
+                            st.markdown("✅ " + " · ".join(_ok))
+                        if _bad:
+                            st.markdown("❌ " + " · ".join(_bad))
+                    if row["verdict"]:
+                        st.caption(f"Суддя: {row['verdict']}")
+
+        # ---- набір випадків ----
+        st.markdown("---")
+        st.markdown("#### Набір тестових ситуацій")
+        st.caption("Побачили в діалогах проблемну ситуацію — додайте її сюди, "
+                   "щоб вона перевірялась при кожній зміні.")
+        if _cases is not None and not _cases.empty:
+            _t = _cases.rename(columns={"title": "Ситуація", "note": "Що перевіряємо",
+                                        "child_text": "Репліка дитини"})
+            st.dataframe(_t[["Ситуація", "Що перевіряємо", "Репліка дитини"]],
+                         use_container_width=True, hide_index=True)
+
+        with st.form("add_eval_case", clear_on_submit=True):
+            st.markdown("**Додати ситуацію**")
+            _title = st.text_input("Назва (коротко)")
+            _note = st.text_input("Що саме перевіряємо")
+            _ctx = st.text_area("Контекст розмови (необов'язково)", height=80)
+            _child = st.text_area("Репліка дитини", height=80)
+            if st.form_submit_button("Додати"):
+                if _title.strip() and _child.strip():
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("""INSERT INTO eval_cases (title, note, context, child_text)
+                                   VALUES (%s,%s,%s,%s)""",
+                                (_title.strip(), _note.strip(), _ctx.strip(), _child.strip()))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success("Додано")
+                    st.rerun()
+                else:
+                    st.error("Потрібні назва і репліка дитини.")
+
+        st.markdown("---")
+        st.caption("Прогін запускається з боку бота командою `python run_eval.py` — "
+                   "він робить виклики моделі, тому виконується там, де є ключі.")
