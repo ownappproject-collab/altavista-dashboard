@@ -1759,5 +1759,39 @@ with tab_eval:
                     st.error("Потрібні назва і репліка дитини.")
 
         st.markdown("---")
-        st.caption("Прогін запускається з боку бота командою `python run_eval.py` — "
-                   "він робить виклики моделі, тому виконується там, де є ключі.")
+        st.markdown("#### Запустити прогін")
+
+        # перевіряємо, чи вже щось виконується
+        try:
+            _qrows = q("""SELECT id, status, requested_at, finished_at, message
+                            FROM eval_queue ORDER BY requested_at DESC LIMIT 3""")
+            _has_queue = True
+        except Exception:
+            _qrows, _has_queue = None, False
+
+        if not _has_queue:
+            st.caption("Черга ще не створена — попросіть запустити міграцію add_eval_queue.")
+        else:
+            _busy = (_qrows is not None and not _qrows.empty
+                     and _qrows.iloc[0]["status"] in ("pending", "running"))
+
+            if _busy:
+                st.info("Прогін виконується — оновіть сторінку за хвилину.")
+            else:
+                st.caption("Прогін робить 2 виклики моделі на кожну ситуацію "
+                           "(8 ситуацій ≈ 16 викликів). Запускайте після зміни моделі "
+                           "чи промптів, а не після кожної дрібної правки.")
+                if st.button("Запустити прогін", type="primary"):
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("INSERT INTO eval_queue (requested_by) VALUES (%s)",
+                                (st.session_state.get("auth_email", "—"),))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success("Поставлено в чергу — результат з'явиться за 1-2 хвилини")
+                    st.rerun()
+
+            if _qrows is not None and not _qrows.empty:
+                _last = _qrows.iloc[0]
+                _st_map = {"pending": "очікує", "running": "виконується",
+                           "done": "завершено", "error": "помилка"}
+                st.caption(f"Останній запит: {_st_map.get(_last['status'], _last['status'])}"
+                           + (f" · {_last['message']}" if _last.get("message") else ""))
