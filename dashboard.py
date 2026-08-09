@@ -1886,3 +1886,77 @@ with tab6:
                     st.rerun()
                 else:
                     st.error("Потрібні хаб і текст гачка.")
+
+# ============ СЕСІЇ ЗА ПРОТОКОЛОМ І ЗОШИТ (вкладка Якість) ============
+with tab4:
+    st.markdown("---")
+    st.markdown("#### Сесії за протоколом")
+    st.caption("Кожна сесія — завершений мікроцикл: вхід, ітерації з ротацією "
+               "режимів і містками, вихід. Тут видно, як вони проходять насправді.")
+
+    try:
+        _sess = q("""SELECT s.id, s.hub, s.started_at,
+                            COALESCE(s.iteration_count,0)  AS iters,
+                            COALESCE(s.resistance_count,0) AS resist,
+                            s.entry_hook,
+                            COALESCE(o.name,'') AS child,
+                            (SELECT count(*) FROM notebook_entries n
+                              WHERE n.session_id = s.id) AS notes
+                       FROM sessions s
+                       LEFT JOIN onboarding o ON o.user_id = s.user_id
+                      WHERE COALESCE(s.iteration_count,0) > 0
+                      ORDER BY s.started_at DESC LIMIT 40""")
+        _has_sess = True
+    except Exception:
+        _sess, _has_sess = None, False
+
+    if not _has_sess:
+        st.info("Лічильники протоколу ще не створені — потрібна міграція add_session_protocol.")
+    elif _sess is None or _sess.empty:
+        st.caption("Сесій за протоколом ще не було — вони з'являться після нових розмов.")
+    else:
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Середня довжина", f"{_sess['iters'].mean():.1f} ітерацій")
+        m2.metric("Сесій з опором", f"{int((_sess['resist'] > 0).sum())} з {len(_sess)}")
+        m3.metric("Записів у зошит", int(_sess["notes"].sum()))
+
+        _t = _sess.rename(columns={"child": "Дитина", "hub": "Тема",
+                                   "iters": "Ітерацій", "resist": "Опір",
+                                   "notes": "Записів", "started_at": "Коли"})
+        st.dataframe(_t[["Коли", "Дитина", "Тема", "Ітерацій", "Опір", "Записів"]],
+                     use_container_width=True, hide_index=True)
+
+        st.caption("Цільова довжина мікроциклу — 10–15 ітерацій, жорстка межа 20. "
+                   "Опір ≥ 2 закриває сесію раніше.")
+
+        # гачки входу, які реально показувались
+        _with_hook = _sess[_sess["entry_hook"].notna()]
+        if not _with_hook.empty:
+            with st.expander("Гачки входу, з яких починались сесії"):
+                for _, r in _with_hook.head(10).iterrows():
+                    st.markdown(f"**{r['hub'] or '—'}** · {r['started_at']:%d.%m %H:%M}  \n"
+                                f"{r['entry_hook']}")
+                    st.markdown("---")
+
+    # ---- зошит: що і куди записували ----
+    st.markdown("#### Зошит Іскри")
+    st.caption("Система фіксує лише ІНДЕКС: що і коли дитина записала. "
+               "Сам зміст лишається в її зошиті — ми його не бачимо.")
+    try:
+        _nb = q("""SELECT block, count(*) AS n FROM notebook_entries
+                   GROUP BY block ORDER BY n DESC""")
+        _BLOCK_LABEL = {
+            "topic": "01. Тема і питання", "word": "02. Словничок",
+            "sketch": "03. Візуалізації", "phrase": "04. Хмара фраз",
+            "cheat_sheet": "05. Шпаргалка", "insight": "06. Інсайти",
+            "open_question": "07. Незакрита справа", "forward_hook": "Заглиблення",
+            "notes": "08. Нотатки",
+        }
+        if _nb is not None and not _nb.empty:
+            _nb["Блок"] = _nb["block"].map(lambda b: _BLOCK_LABEL.get(b, b))
+            st.dataframe(_nb[["Блок", "n"]].rename(columns={"n": "Записів"}),
+                         use_container_width=True, hide_index=True)
+        else:
+            st.caption("Записів ще не було.")
+    except Exception:
+        st.caption("Таблиця зошита ще не створена.")
