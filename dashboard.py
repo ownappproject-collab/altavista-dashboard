@@ -1795,3 +1795,94 @@ with tab_eval:
                            "done": "завершено", "error": "помилка"}
                 st.caption(f"Останній запит: {_st_map.get(_last['status'], _last['status'])}"
                            + (f" · {_last['message']}" if _last.get("message") else ""))
+
+# ============ БАНК ГАЧКІВ ВХОДУ (вкладка Контент) ============
+with tab6:
+    st.markdown("---")
+    st.markdown("#### Гачки входу")
+    st.caption("Провокація, з якої Провідник починає розмову після вибору теми. "
+               "Пишете вручну під тип навчання — бот бере ваш варіант. "
+               "Де порожньо — генерує сам за вашою формулою.")
+
+    try:
+        _hooks = q("""SELECT id, hub, subtopic, learning_type, hook, source, used_count
+                        FROM entry_hooks WHERE active
+                       ORDER BY hub, subtopic, learning_type""")
+        _has_hooks = True
+    except Exception:
+        _hooks, _has_hooks = None, False
+
+    if not _has_hooks:
+        st.info("Банк гачків ще не створено — попросіть запустити міграцію add_entry_hooks.")
+    else:
+        _LT_LABEL = {"": "усі типи", "діяч": "Діяч", "рефлектор": "Рефлектор",
+                     "мислитель": "Мислитель", "сенсор": "Сенсор"}
+
+        if _hooks is not None and not _hooks.empty:
+            _t = _hooks.copy()
+            _t["Тип"] = _t["learning_type"].map(lambda x: _LT_LABEL.get(x or "", x))
+            _t["Джерело"] = _t["source"].map({"manual": "ваш", "generated": "ШІ"})
+            st.dataframe(
+                _t[["hub", "subtopic", "Тип", "Джерело", "used_count"]].rename(
+                    columns={"hub": "Хаб", "subtopic": "Підтема",
+                             "used_count": "Показів"}),
+                use_container_width=True, hide_index=True)
+
+            st.markdown("**Редагувати гачок**")
+            _opts = {int(r["id"]): f"{r['hub']}"
+                                   + (f" → {r['subtopic']}" if r["subtopic"] else "")
+                                   + f" · {_LT_LABEL.get(r['learning_type'] or '', '')}"
+                     for _, r in _hooks.iterrows()}
+            _pick = st.selectbox("Оберіть:", list(_opts.keys()),
+                                 format_func=lambda i: _opts[i], key="hook_pick")
+            _cur = _hooks[_hooks["id"] == _pick].iloc[0]
+            _txt = st.text_area("Текст гачка:", value=_cur["hook"],
+                                height=140, key=f"hook_txt_{_pick}")
+            hc1, hc2 = st.columns([1, 1])
+            with hc1:
+                if st.button("Зберегти зміни", key="hook_save"):
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("UPDATE entry_hooks SET hook=%s, source='manual' "
+                                "WHERE id=%s", (_txt.strip(), int(_pick)))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success("Збережено")
+            with hc2:
+                if st.button("Видалити", key="hook_del"):
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("UPDATE entry_hooks SET active=false WHERE id=%s",
+                                (int(_pick),))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success("Прибрано")
+                    st.rerun()
+
+        st.markdown("---")
+        with st.form("add_hook", clear_on_submit=True):
+            st.markdown("**Додати гачок**")
+            fh1, fh2, fh3 = st.columns([1, 1, 1])
+            with fh1:
+                _hub = st.text_input("Хаб")
+            with fh2:
+                _sub = st.text_input("Підтема (можна порожньо)")
+            with fh3:
+                _lt = st.selectbox("Тип навчання:",
+                                   ["", "діяч", "рефлектор", "мислитель", "сенсор"],
+                                   format_func=lambda x: _LT_LABEL.get(x, x))
+            _hook_txt = st.text_area("Текст гачка", height=120)
+            st.caption("Пам'ятайте про правила: місток від сьогодення дитини, "
+                       "дія за межі чату (погугли, знайди, запусти), одне питання, "
+                       "без слів «урок», «тема», без оцінних прикметників.")
+            if st.form_submit_button("Додати"):
+                if _hub.strip() and _hook_txt.strip():
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("""INSERT INTO entry_hooks
+                                     (hub, subtopic, learning_type, hook, source)
+                                   VALUES (%s,%s,%s,%s,'manual')
+                                   ON CONFLICT (hub, subtopic, learning_type)
+                                   DO UPDATE SET hook=EXCLUDED.hook,
+                                                 source='manual', active=true""",
+                                (_hub.strip(), _sub.strip(), _lt, _hook_txt.strip()))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success("Додано")
+                    st.rerun()
+                else:
+                    st.error("Потрібні хаб і текст гачка.")
