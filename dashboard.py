@@ -1838,7 +1838,7 @@ with tab6:
             _cur = _hooks[_hooks["id"] == _pick].iloc[0]
             _txt = st.text_area("Текст гачка:", value=_cur["hook"],
                                 height=140, key=f"hook_txt_{_pick}")
-            hc1, hc2 = st.columns([1, 1])
+            hc1, hc2, hc3 = st.columns([1, 1, 1])
             with hc1:
                 if st.button("Зберегти зміни", key="hook_save"):
                     cn = conn_w(); cur = cn.cursor()
@@ -1847,6 +1847,20 @@ with tab6:
                     cn.commit(); cn.close(); q.clear()
                     st.success("Збережено")
             with hc2:
+                # згенеровані ШІ гачки можна підтвердити як еталонні
+                if _cur["source"] == "generated":
+                    if st.button("✓ Це вдалий", key="hook_approve",
+                                 help="Зробити еталонним: більше не перегенерується "
+                                      "і піде у приклади для ШІ"):
+                        cn = conn_w(); cur = cn.cursor()
+                        cur.execute("UPDATE entry_hooks SET source='manual' "
+                                    "WHERE id=%s", (int(_pick),))
+                        cn.commit(); cn.close(); q.clear()
+                        st.success("Тепер це еталон")
+                        st.rerun()
+                else:
+                    st.caption("Еталонний")
+            with hc3:
                 if st.button("Видалити", key="hook_del"):
                     cn = conn_w(); cur = cn.cursor()
                     cur.execute("UPDATE entry_hooks SET active=false WHERE id=%s",
