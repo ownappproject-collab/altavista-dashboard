@@ -1806,7 +1806,8 @@ with tab6:
 
     try:
         _hooks = q("""SELECT id, hub, subtopic, learning_type, hook, source, used_count
-                        FROM entry_hooks WHERE active
+                        FROM entry_hooks
+                       WHERE active AND COALESCE(hook, '') <> ''
                        ORDER BY hub, subtopic, learning_type""")
         _has_hooks = True
     except Exception:
@@ -1900,6 +1901,72 @@ with tab6:
                     st.rerun()
                 else:
                     st.error("Потрібні хаб і текст гачка.")
+
+    st.markdown("---")
+    st.markdown("#### Базові принципи тем")
+    st.caption("Коротке предметне ядро: не сценарій і не послідовність кроків. "
+               "Провідник використовує його як знання та імпровізує за протоколом сесії.")
+
+    try:
+        _principles = q("""SELECT hub, subtopic, max(topic_principles) AS topic_principles
+                            FROM entry_hooks
+                           WHERE active AND COALESCE(topic_principles, '') <> ''
+                           GROUP BY hub, subtopic
+                           ORDER BY hub, subtopic""")
+        _has_principles = True
+    except Exception:
+        _principles, _has_principles = None, False
+
+    if not _has_principles:
+        st.info("Поле принципів ще не створено — запустіть міграцію add_entry_hooks.")
+    else:
+        if _principles is not None and not _principles.empty:
+            _p_opts = {
+                i: f"{r['hub']}" + (f" → {r['subtopic']}" if r['subtopic'] else " → увесь хаб")
+                for i, (_, r) in enumerate(_principles.iterrows())
+            }
+            _p_pick = st.selectbox("Оберіть тему:", list(_p_opts.keys()),
+                                   format_func=lambda i: _p_opts[i], key="principle_pick")
+            _pcur = _principles.iloc[_p_pick]
+            _ptext = st.text_area(
+                "Базові принципи:", value=_pcur["topic_principles"], height=170,
+                key=f"principles_text_{_p_pick}")
+            if st.button("Зберегти принципи", key="principles_save"):
+                cn = conn_w(); cur = cn.cursor()
+                cur.execute("""UPDATE entry_hooks
+                                  SET topic_principles=%s, updated_at=now()
+                                WHERE active AND hub=%s
+                                  AND COALESCE(subtopic, '')=%s""",
+                            (_ptext.strip(), _pcur["hub"], _pcur["subtopic"] or ""))
+                cn.commit(); cn.close(); q.clear()
+                st.success("Принципи збережено")
+                st.rerun()
+
+        st.markdown("**Додати принципи для нової теми**")
+        with st.form("add_principle", clear_on_submit=True):
+            pc1, pc2 = st.columns(2)
+            with pc1:
+                _p_hub = st.text_input("Хаб", key="principle_new_hub")
+            with pc2:
+                _p_sub = st.text_input("Підтема (можна порожньо)", key="principle_new_sub")
+            _p_new = st.text_area("Предметне ядро теми", height=150,
+                                  key="principle_new_text")
+            if st.form_submit_button("Додати принципи"):
+                if _p_hub.strip() and _p_new.strip():
+                    cn = conn_w(); cur = cn.cursor()
+                    cur.execute("""INSERT INTO entry_hooks
+                                     (hub, subtopic, learning_type, hook, source,
+                                      topic_principles)
+                                   VALUES (%s,%s,'','', 'principle', %s)
+                                   ON CONFLICT (hub, subtopic, learning_type)
+                                   DO UPDATE SET topic_principles=EXCLUDED.topic_principles,
+                                                 active=true, updated_at=now()""",
+                                (_p_hub.strip(), _p_sub.strip(), _p_new.strip()))
+                    cn.commit(); cn.close(); q.clear()
+                    st.success("Принципи додано")
+                    st.rerun()
+                else:
+                    st.error("Потрібні хаб і текст принципів.")
 
 # ============ СЕСІЇ ЗА ПРОТОКОЛОМ І ЗОШИТ (вкладка Якість) ============
 with tab4:
