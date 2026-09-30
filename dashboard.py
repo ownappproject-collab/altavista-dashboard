@@ -338,10 +338,46 @@ st.markdown(
     "— натисніть, щоб відкрити в Telegram і написати `/start`."
 )
 
-# тема зафіксована тёмна — графіки в темному оформленні
-PLOTLY_TEMPLATE = "plotly_white"
-
 _is_manager = st.session_state.auth_role in ("admin", "owner")
+if "night_mode" not in st.session_state:
+    st.session_state.night_mode = False
+
+_night_mode = st.sidebar.toggle("🌙 Нічний режим", key="night_mode")
+st.sidebar.caption("Тема зберігається під час роботи кабінету.")
+
+if _night_mode:
+    st.markdown("""
+    <style>
+      :root {
+        --cal-cream:#11161C; --cal-clay:#F08A4B; --cal-gold:#E3B341;
+        --cal-ink:#E6EDF3; --cal-slate:#C9D1D9; --cal-earth:#B7A58A;
+        --cal-line:#30363D;
+      }
+      [data-testid="stAppViewContainer"],
+      [data-testid="stHeader"],
+      .main, .block-container {background:#0D1117 !important; color:#E6EDF3 !important;}
+      section[data-testid="stSidebar"] {background:#161B22 !important; border-right-color:#30363D !important;}
+      h1, h2, h3, p, li, label, span, div {color:#E6EDF3;}
+      h1, h2, h3 {color:#F0F6FC !important;}
+      [data-testid="stMetric"] {background:#161B22; border:1px solid #30363D;
+        border-radius:10px; padding:12px;}
+      [data-testid="stMetricValue"] {color:#F0F6FC;}
+      [data-testid="stMetricLabel"], [data-testid="stCaptionContainer"] {color:#B7A58A !important;}
+      .stTextInput input, .stTextArea textarea,
+      .stSelectbox [data-baseweb="select"] > div,
+      [data-baseweb="input"] > div {background:#161B22 !important; color:#E6EDF3 !important;
+        border-color:#30363D !important;}
+      [data-testid="stDataFrame"] {border-color:#30363D;}
+      [data-testid="stExpander"] {background:#161B22; border-color:#30363D;}
+      .stButton > button {background:#161B22; color:#E6EDF3; border-color:#30363D;}
+      .stButton > button:hover {background:#21262D; border-color:#F08A4B; color:#F08A4B;}
+      hr {border-color:#30363D;}
+      .bubble-child {background:rgba(56,139,253,.16); border-color:rgba(56,139,253,.45);}
+      .bubble-ai {background:rgba(163,113,247,.20); border-color:rgba(163,113,247,.5);}
+    </style>
+    """, unsafe_allow_html=True)
+
+PLOTLY_TEMPLATE = "plotly_dark" if _night_mode else "plotly_white"
 _PAGES = [
     ("how", "🧭 Як це працює"),
     ("overview", "📊 Огляд"),
