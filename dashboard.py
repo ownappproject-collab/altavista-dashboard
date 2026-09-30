@@ -9,6 +9,7 @@
 import os
 import json
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
@@ -16,11 +17,34 @@ import plotly.express as px
 from datetime import datetime, timedelta
 
 # ============ ПІДКЛЮЧЕННЯ ============
-def get_conn():
+@st.cache_resource
+def get_pool():
+    """Один пул на процес Streamlit замість нового TCP/SSL з'єднання на запит."""
     dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL", "")
     if dsn.startswith("postgres://"):
         dsn = dsn.replace("postgres://", "postgresql://", 1)
-    return psycopg2.connect(dsn, sslmode="require")
+    return ThreadedConnectionPool(minconn=1, maxconn=5, dsn=dsn, sslmode="require")
+
+
+def get_conn():
+    return get_pool().getconn()
+
+
+def release_conn(conn):
+    """Возвращает соединение в пул и откатывает случайную незавершённую транзакцию."""
+    if conn is None:
+        return
+    try:
+        conn.rollback()
+    except Exception:
+        pass
+    try:
+        get_pool().putconn(conn)
+    except Exception:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 @st.cache_data(ttl=30)
 def q(sql, params=None):
@@ -28,7 +52,7 @@ def q(sql, params=None):
     try:
         return pd.read_sql(sql, conn, params=params)
     finally:
-        conn.close()
+        release_conn(conn)
 
 st.set_page_config(page_title="Альтавіста · Кабінет", page_icon="🔥", layout="wide")
 
@@ -164,7 +188,7 @@ def _check_login(email: str, password: str):
         conn = get_conn(); cur = conn.cursor()
         cur.execute("SELECT pw_salt, pw_hash, role FROM dashboard_users WHERE email=%s",
                     (email.strip().lower(),))
-        row = cur.fetchone(); conn.close()
+        row = cur.fetchone(); release_conn(conn)
         if not row:
             return None
         salt, pw_hash, role = row
@@ -188,7 +212,7 @@ def _session_create(email, role):
         cur.execute("""INSERT INTO dashboard_sessions (token, email, role, expires_at)
                        VALUES (%s,%s,%s,%s)""",
                     (token, email, role, _dt.utcnow() + _td(days=SESSION_DAYS)))
-        conn.commit(); conn.close()
+        conn.commit(); release_conn(conn)
         return token
     except Exception:
         return None
@@ -201,7 +225,7 @@ def _session_check(token):
         conn = get_conn(); cur = conn.cursor()
         cur.execute("""SELECT email, role FROM dashboard_sessions
                         WHERE token=%s AND expires_at > now()""", (token,))
-        row = cur.fetchone(); conn.close()
+        row = cur.fetchone(); release_conn(conn)
         return (row[0], row[1]) if row else None
     except Exception:
         return None
@@ -210,7 +234,7 @@ def _session_drop(token):
     try:
         conn = get_conn(); cur = conn.cursor()
         cur.execute("DELETE FROM dashboard_sessions WHERE token=%s", (token,))
-        conn.commit(); conn.close()
+        conn.commit(); release_conn(conn)
     except Exception:
         pass
 
@@ -318,22 +342,34 @@ st.markdown(
 PLOTLY_TEMPLATE = "plotly_white"
 
 _is_manager = st.session_state.auth_role in ("admin", "owner")
+_PAGES = [
+    ("how", "🧭 Як це працює"),
+    ("overview", "📊 Огляд"),
+    ("dialogs", "💬 Діалоги"),
+    ("funnel", "🎯 Воронка"),
+    ("quality", "✅ Якість"),
+    ("methodology", "⚙️ Методологія"),
+    ("content", "📝 Контент"),
+    ("students", "👥 Учні"),
+    ("profiles", "🎭 Профілі"),
+    ("eval", "🧪 Тести якості"),
+    ("help", "❓ Довідка"),
+]
 if _is_manager:
-    (tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof,
-     tab_eval, tab8, tab9) = st.tabs(
-        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі",
-         "🧪 Тести якості", "❓ Довідка", "🔐 Команда"])
-else:
-    (tab_how, tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab_prof,
-     tab_eval, tab8) = st.tabs(
-        ["🧭 Як це працює", "📊 Огляд", "💬 Діалоги", "🎯 Воронка", "✅ Якість",
-         "⚙️ Методологія", "📝 Контент", "👥 Учні", "🎭 Профілі",
-         "🧪 Тести якості", "❓ Довідка"])
-    tab9 = None
+    _PAGES.append(("team", "🔐 Команда"))
+
+# st.tabs виконує тело всіх вкладок на кожному rerun. Радіо-навігація
+# залишає ту саму зрозумілу структуру, але рендерить і читає з БД лише
+# активну сторінку.
+_page_keys = [key for key, _ in _PAGES]
+_page_labels = dict(_PAGES)
+_active_page = st.sidebar.radio(
+    "Розділ кабінету", _page_keys,
+    format_func=lambda key: _page_labels[key],
+)
 
 # ============ ОГЛЯД ============
-with tab1:
+if _active_page == "overview":
     users = int(q("SELECT count(*) n FROM users")["n"][0])
     sessions = int(q("SELECT count(*) n FROM sessions")["n"][0])
     messages = int(q("SELECT count(*) n FROM messages")["n"][0])
@@ -469,7 +505,7 @@ with tab1:
         st.caption("Темніше = більше активності. Видно, коли діти користуються ботом.")
 
 # ============ ДІАЛОГИ (фільтри + чат-вид) ============
-with tab2:
+if _active_page == "dialogs":
     st.subheader("Читати діалоги")
 
     fc = st.columns([2,2,3])
@@ -638,7 +674,7 @@ with tab2:
                             f"<div class='bubble-ai'>{t}</div>", unsafe_allow_html=True)
 
 # ============ ВОРОНКА ============
-with tab3:
+if _active_page == "funnel":
     st.subheader("Воронка методології: Іскра → Вектор")
     st.caption("Скільки дітей дійшло до кожного етапу")
 
@@ -664,7 +700,7 @@ with tab3:
             "Конверсія в Вектор = головний показник, чи працює методологія.")
 
 # ============ ЯКІСТЬ ============
-with tab4:
+if _active_page == "quality":
     st.subheader("Якість діалогів")
 
     # середня довжина діалогу
@@ -770,16 +806,13 @@ with tab4:
         st.dataframe(by_state, use_container_width=True, hide_index=True)
 
 # ============ МЕТОДОЛОГІЯ (Ольга редагує промпти) ============
-with tab5:
+if _active_page == "methodology":
     st.subheader("⚙️ Лабораторія методології")
     st.caption("Тут ви редагуєте промпти Провідника. Зберегли → бот одразу "
                "відповідає по-новому. Тестуйте в Telegram без перезапуску.")
 
     def get_conn_w():
-        dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL","")
-        if dsn.startswith("postgres://"):
-            dsn = dsn.replace("postgres://","postgresql://",1)
-        return psycopg2.connect(dsn, sslmode="require")
+        return get_conn()
 
     # перевірка чи є таблиця
     try:
@@ -831,7 +864,7 @@ with tab5:
                     cur.execute("""UPDATE methodology
                         SET system_prompt=%s, updated_at=now(), updated_by='olga'
                         WHERE state_key=%s""", (new_prompt, key))
-                conn.commit(); conn.close()
+                conn.commit(); release_conn(conn)
                 q.clear()  # скинути кеш
                 st.success("✅ Збережено! Бот уже відповідає по-новому. "
                            "Перевірте в Telegram.")
@@ -841,16 +874,13 @@ with tab5:
                          "він візьме нову версію з першої ж відповіді.")
 
 # ============ КОНТЕНТ (Ольга наповнює дерево входу) ============
-with tab6:
+if _active_page == "content":
     st.subheader("📝 Контент дерева входу")
     st.caption("Тут ви наповнюєте те, що бот показує дитині: питання діагностики, "
                "хаби, тексти входу, логіку аватара. Бот бере звідси.")
 
     def conn_w():
-        dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL","")
-        if dsn.startswith("postgres://"):
-            dsn = dsn.replace("postgres://","postgresql://",1)
-        return psycopg2.connect(dsn, sslmode="require")
+        return get_conn()
 
     # перевірка таблиць
     try:
@@ -876,7 +906,7 @@ with tab6:
                 if st.button("💾 Зберегти", key=f"savetxt_{row['key']}"):
                     cn=conn_w();cur=cn.cursor()
                     cur.execute("UPDATE entry_texts SET text=%s,updated_at=now() WHERE key=%s",
-                                (new,row["key"]));cn.commit();cn.close();q.clear()
+                                (new,row["key"]));cn.commit();release_conn(cn);q.clear()
                     st.success("Збережено!")
                 st.divider()
 
@@ -902,7 +932,7 @@ with tab6:
                         cn=conn_w();cur=cn.cursor()
                         cur.execute("UPDATE diag_questions SET text=%s,options=%s,updated_at=now() WHERE id=%s",
                                     (new_text,json.dumps(new_opts,ensure_ascii=False),int(row["id"])))
-                        cn.commit();cn.close();q.clear()
+                        cn.commit();release_conn(cn);q.clear()
                         st.success("Збережено!")
 
         # ---- ХАБИ ----
@@ -938,7 +968,7 @@ with tab6:
                         else:
                             cur.execute("UPDATE hubs SET subtopics=%s WHERE id=%s",
                                         (json.dumps(new_subs,ensure_ascii=False),row["id"]))
-                        cn.commit();cn.close();q.clear()
+                        cn.commit();release_conn(cn);q.clear()
                         st.success("Збережено!")
 
         # ---- АВАТАР ----
@@ -955,12 +985,12 @@ with tab6:
                     cn=conn_w();cur=cn.cursor()
                     cur.execute("""UPDATE avatar_map SET superpower=%s,weakness=%s,driver=%s,updated_at=now()
                         WHERE profile_type=%s""",(sp,wk,dr,row["profile_type"]))
-                    cn.commit();cn.close();q.clear()
+                    cn.commit();release_conn(cn);q.clear()
                     st.success("Збережено!")
                 st.divider()
 
 # ============ ДОВІДКА (інструкція всередині кабінету) ============
-with tab8:
+if _active_page == "help":
     st.subheader("❓ Як користуватись кабінетом")
     st.markdown("""
 Вітаю, Ольго! Тут ви **спостерігаєте**, як діти спілкуються з ботом,
@@ -1036,14 +1066,11 @@ with tab8:
     """)
 
 # ============ УЧНІ (управління учнями) ============
-with tab7:
+if _active_page == "students":
     st.subheader("👥 Управління учнями")
 
     def conn_uw():
-        dsn = os.environ.get("DATABASE_URL") or st.secrets.get("DATABASE_URL","")
-        if dsn.startswith("postgres://"):
-            dsn = dsn.replace("postgres://","postgresql://",1)
-        return psycopg2.connect(dsn, sslmode="require")
+        return get_conn()
 
     # тягнемо учнів з ім'ям/ніком (best-effort на випадок старої схеми)
     try:
@@ -1114,14 +1141,14 @@ with tab7:
                 if st.button("Зберегти статус"):
                     cn=conn_uw();cur=cn.cursor()
                     cur.execute("UPDATE users SET status=%s WHERE id=%s",(new_status,uid))
-                    cn.commit();cn.close();q.clear()
+                    cn.commit();release_conn(cn);q.clear()
                     st.success(f"Статус: {new_status}")
             with cb:
                 note = st.text_input("Нотатка:", value=prow.get("note",""))
                 if st.button("Зберегти нотатку"):
                     cn=conn_uw();cur=cn.cursor()
                     cur.execute("UPDATE users SET note=%s WHERE id=%s",(note,uid))
-                    cn.commit();cn.close();q.clear()
+                    cn.commit();release_conn(cn);q.clear()
                     st.success("Нотатку збережено")
 
         # видалення з підтвердженням
@@ -1131,13 +1158,13 @@ with tab7:
             if st.button("🗑 Видалити", type="secondary", disabled=not confirm):
                 cn=conn_uw();cur=cn.cursor()
                 cur.execute("DELETE FROM users WHERE id=%s",(uid,))  # каскад знесе сесії+повідомлення
-                cn.commit();cn.close();q.clear()
+                cn.commit();release_conn(cn);q.clear()
                 st.success("Учня видалено (разом з діалогами).")
                 st.rerun()
 
 # ============ 🔐 КОМАНДА (тільки admin/owner) ============
-if tab9 is not None:
-    with tab9:
+if _active_page == "team":
+    with st.container():
         st.subheader("Команда кабінету")
         st.caption("Доступи до цього кабінету: хто може заходити, ролі, паролі. "
                    "Це користувачі КАБІНЕТУ (не діти — діти у вкладці Учні).")
@@ -1174,7 +1201,7 @@ if tab9 is not None:
                         cur.execute("""INSERT INTO dashboard_users (email, pw_salt, pw_hash, role)
                                        VALUES (%s,%s,%s,%s)""",
                                     (new_email.strip().lower(), salt, pw_hash, new_role))
-                        cn.commit(); cn.close(); q.clear()
+                        cn.commit(); release_conn(cn); q.clear()
                         st.success(f"✅ {new_email.strip().lower()} доданий ({new_role})")
                         st.rerun()
                     except Exception as e:
@@ -1196,7 +1223,7 @@ if tab9 is not None:
                     cn = conn_w(); cur = cn.cursor()
                     cur.execute("UPDATE dashboard_users SET pw_salt=%s, pw_hash=%s WHERE email=%s",
                                 (salt, _hash_pw(pw2, salt), sel_email))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success(f"✅ Пароль для {sel_email} змінено")
 
             st.markdown("")
@@ -1207,12 +1234,12 @@ if tab9 is not None:
                 if st.button("🗑 Видалити учасника", disabled=not confirm_del):
                     cn = conn_w(); cur = cn.cursor()
                     cur.execute("DELETE FROM dashboard_users WHERE email=%s", (sel_email,))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success(f"🗑 {sel_email} видалений")
                     st.rerun()
 
 # ============ 🎭 ПРОФІЛІ (4 осі + згенеровані аватари) ============
-with tab_prof:
+if _active_page == "profiles":
     st.subheader("Профілі дітей та згенеровані аватари")
     st.caption("Що система визначила по кожній дитині: тип навчання, драйвер, "
                "рівень зрілості — і який аватар згенерував ШІ. "
@@ -1393,7 +1420,7 @@ with tab_prof:
 
 
 # ============ ЯК ЦЕ ПРАЦЮЄ ============
-with tab_how:
+if _active_page == "how":
     def _safe_scalar(sql, default=0):
         try:
             df = q(sql)
@@ -1578,7 +1605,7 @@ with tab_how:
                     "з ролями. Дані дітей закриті від сторонніх.")
 
 # ============ ВИБІР МОДЕЛІ ШІ (у вкладці Методологія) ============
-with tab5:
+if _active_page == "methodology":
     st.markdown("---")
     st.markdown("#### Модель ШІ")
     st.caption("Який «мозок» використовує Провідник. Зміна діє одразу, без перезапуску.")
@@ -1612,7 +1639,7 @@ with tab5:
                            VALUES ('ai_model', %s, now())
                            ON CONFLICT (key) DO UPDATE
                              SET value=EXCLUDED.value, updated_at=now()""", (_pick,))
-            cn.commit(); cn.close(); q.clear()
+            cn.commit(); release_conn(cn); q.clear()
             st.success(f"Збережено: {_MODELS[_pick]}")
 
         st.caption("Ціни за 1 млн токенів (вхід/вихід). Для звичайних діалогів з дітьми "
@@ -1621,7 +1648,7 @@ with tab5:
                    "експериментів, не для щоденної роботи.")
 
 # ============ ПРАВИЛА АДАПТАЦІЇ ТОНУ (вкладка Методологія) ============
-with tab5:
+if _active_page == "methodology":
     st.markdown("---")
     st.markdown("#### Як Провідник підлаштовується під дитину")
     st.caption("Ці правила додаються до промпту при кожній відповіді — залежно від того, "
@@ -1657,11 +1684,11 @@ with tab5:
                     cn = conn_w(); cur = cn.cursor()
                     cur.execute("UPDATE tone_rules SET rule=%s, updated_at=now() "
                                 "WHERE id=%s", (_txt.strip(), int(r["id"])))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success("Збережено — бот вже говорить по-новому")
 
 # ============ ТЕСТИ ЯКОСТІ ============
-with tab_eval:
+if _active_page == "eval":
     st.subheader("Тести якості відповідей")
     st.caption("Набір типових ситуацій, які проганяються через Провідника. "
                "Показує цифрами, чи стало краще після зміни моделі або промпту — "
@@ -1752,7 +1779,7 @@ with tab_eval:
                     cur.execute("""INSERT INTO eval_cases (title, note, context, child_text)
                                    VALUES (%s,%s,%s,%s)""",
                                 (_title.strip(), _note.strip(), _ctx.strip(), _child.strip()))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success("Додано")
                     st.rerun()
                 else:
@@ -1785,7 +1812,7 @@ with tab_eval:
                     cn = conn_w(); cur = cn.cursor()
                     cur.execute("INSERT INTO eval_queue (requested_by) VALUES (%s)",
                                 (st.session_state.get("auth_email", "—"),))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success("Поставлено в чергу — результат з'явиться за 1-2 хвилини")
                     st.rerun()
 
@@ -1797,7 +1824,7 @@ with tab_eval:
                            + (f" · {_last['message']}" if _last.get("message") else ""))
 
 # ============ БАНК ГАЧКІВ ВХОДУ (вкладка Контент) ============
-with tab6:
+if _active_page == "content":
     st.markdown("---")
     st.markdown("#### Гачки входу")
     st.caption("Провокація, з якої Провідник починає розмову після вибору теми. "
@@ -1845,7 +1872,7 @@ with tab6:
                     cn = conn_w(); cur = cn.cursor()
                     cur.execute("UPDATE entry_hooks SET hook=%s, source='manual' "
                                 "WHERE id=%s", (_txt.strip(), int(_pick)))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success("Збережено")
             with hc2:
                 # згенеровані ШІ гачки можна підтвердити як еталонні
@@ -1856,7 +1883,7 @@ with tab6:
                         cn = conn_w(); cur = cn.cursor()
                         cur.execute("UPDATE entry_hooks SET source='manual' "
                                     "WHERE id=%s", (int(_pick),))
-                        cn.commit(); cn.close(); q.clear()
+                        cn.commit(); release_conn(cn); q.clear()
                         st.success("Тепер це еталон")
                         st.rerun()
                 else:
@@ -1866,7 +1893,7 @@ with tab6:
                     cn = conn_w(); cur = cn.cursor()
                     cur.execute("UPDATE entry_hooks SET active=false WHERE id=%s",
                                 (int(_pick),))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success("Прибрано")
                     st.rerun()
 
@@ -1896,7 +1923,7 @@ with tab6:
                                    DO UPDATE SET hook=EXCLUDED.hook,
                                                  source='manual', active=true""",
                                 (_hub.strip(), _sub.strip(), _lt, _hook_txt.strip()))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success("Додано")
                     st.rerun()
                 else:
@@ -1938,7 +1965,7 @@ with tab6:
                                 WHERE active AND hub=%s
                                   AND COALESCE(subtopic, '')=%s""",
                             (_ptext.strip(), _pcur["hub"], _pcur["subtopic"] or ""))
-                cn.commit(); cn.close(); q.clear()
+                cn.commit(); release_conn(cn); q.clear()
                 st.success("Принципи збережено")
                 st.rerun()
 
@@ -1962,14 +1989,14 @@ with tab6:
                                    DO UPDATE SET topic_principles=EXCLUDED.topic_principles,
                                                  active=true, updated_at=now()""",
                                 (_p_hub.strip(), _p_sub.strip(), _p_new.strip()))
-                    cn.commit(); cn.close(); q.clear()
+                    cn.commit(); release_conn(cn); q.clear()
                     st.success("Принципи додано")
                     st.rerun()
                 else:
                     st.error("Потрібні хаб і текст принципів.")
 
 # ============ СЕСІЇ ЗА ПРОТОКОЛОМ І ЗОШИТ (вкладка Якість) ============
-with tab4:
+if _active_page == "quality":
     st.markdown("---")
     st.markdown("#### Сесії за протоколом")
     st.caption("Кожна сесія — завершений мікроцикл: вхід, ітерації з ротацією "
