@@ -153,6 +153,23 @@ st.markdown("""
   /* бокова панель */
   section[data-testid="stSidebar"] {background:var(--cal-cream); border-right:1px solid var(--cal-line);}
 
+  /* Не ховаємо кнопку повернення бокової панелі: у згорнутому стані це
+     єдиний зрозумілий спосіб знову відкрити навігацію. */
+  [data-testid="stSidebarCollapsedControl"] {
+    position:fixed !important; left:12px !important; top:12px !important;
+    z-index:1000000 !important; display:flex !important; visibility:visible !important;
+    opacity:1 !important;
+  }
+  [data-testid="stSidebarCollapsedControl"] button {
+    width:40px !important; height:40px !important; border-radius:10px !important;
+    border:1px solid var(--cal-line) !important;
+    background:var(--cal-cream) !important; color:var(--cal-ink) !important;
+    box-shadow:0 2px 10px rgba(30,41,48,.14) !important;
+  }
+  [data-testid="stSidebarCollapsedControl"] button:hover {
+    border-color:var(--cal-clay) !important; color:var(--cal-clay) !important;
+  }
+
 
   /* сповіщення */
   .stAlert {border-radius:10px; border-width:1px;}
@@ -357,6 +374,12 @@ if _night_mode:
       [data-testid="stHeader"],
       .main, .block-container {background:#0D1117 !important; color:#E6EDF3 !important;}
       section[data-testid="stSidebar"] {background:#161B22 !important; border-right-color:#30363D !important;}
+      [data-testid="stSidebarCollapsedControl"] button {
+        background:#161B22 !important; color:#E6EDF3 !important; border-color:#30363D !important;
+      }
+      [data-testid="stSidebarCollapsedControl"] button:hover {
+        background:#21262D !important; border-color:#F08A4B !important; color:#F08A4B !important;
+      }
       h1, h2, h3, p, li, label, span, div {color:#E6EDF3;}
       h1, h2, h3 {color:#F0F6FC !important;}
       [data-testid="stMetric"] {background:#161B22; border:1px solid #30363D;
