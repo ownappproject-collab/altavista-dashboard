@@ -359,8 +359,8 @@ _is_manager = st.session_state.auth_role in ("admin", "owner")
 if "night_mode" not in st.session_state:
     st.session_state.night_mode = False
 
-_night_mode = st.sidebar.toggle("🌙 Нічний режим", key="night_mode")
-st.sidebar.caption("Тема зберігається під час роботи кабінету.")
+_night_mode = st.toggle("🌙 Нічний режим", key="night_mode")
+st.caption("Тема зберігається під час роботи кабінету.")
 
 if _night_mode:
     st.markdown("""
@@ -417,12 +417,12 @@ _PAGES = [
 if _is_manager:
     _PAGES.append(("team", "🔐 Команда"))
 
-# st.tabs виконує тело всіх вкладок на кожному rerun. Радіо-навігація
-# залишає ту саму зрозумілу структуру, але рендерить і читає з БД лише
-# активну сторінку.
+# st.tabs виконує тіло всіх вкладок на кожному rerun. Постійний selectbox
+# залишає навігацію доступною навіть коли нативну бокову панель згорнуто,
+# а рендерить і читає з БД лише активну сторінку.
 _page_keys = [key for key, _ in _PAGES]
 _page_labels = dict(_PAGES)
-_active_page = st.sidebar.radio(
+_active_page = st.selectbox(
     "Розділ кабінету", _page_keys,
     format_func=lambda key: _page_labels[key],
 )
