@@ -153,6 +153,26 @@ st.markdown("""
   /* бокова панель */
   section[data-testid="stSidebar"] {background:var(--cal-cream); border-right:1px solid var(--cal-line);}
 
+  /* Основна навігація: виглядає як вкладки, але не має вартості st.tabs —
+     рендериться лише вибраний розділ. */
+  div[data-testid="stRadio"] [role="radiogroup"] {
+    gap:6px; flex-wrap:wrap;
+  }
+  div[data-testid="stRadio"] [role="radiogroup"] label {
+    border:1px solid var(--cal-line); border-radius:9px; padding:7px 11px;
+    background:var(--cal-cream); transition:.16s;
+  }
+  div[data-testid="stRadio"] [role="radiogroup"] label:hover {
+    border-color:var(--cal-clay); color:var(--cal-clay);
+  }
+  div[data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
+    border-color:var(--cal-clay); background:#FBEFE3; color:var(--cal-clay);
+    font-weight:600;
+  }
+  div[data-testid="stRadio"] [role="radiogroup"] label > div:first-child {
+    display:none;
+  }
+
   /* Не ховаємо кнопку повернення бокової панелі: у згорнутому стані це
      єдиний зрозумілий спосіб знову відкрити навігацію. */
   [data-testid="stSidebarCollapsedControl"] {
@@ -374,6 +394,12 @@ if _night_mode:
       [data-testid="stHeader"],
       .main, .block-container {background:#0D1117 !important; color:#E6EDF3 !important;}
       section[data-testid="stSidebar"] {background:#161B22 !important; border-right-color:#30363D !important;}
+      div[data-testid="stRadio"] [role="radiogroup"] label {
+        background:#161B22; border-color:#30363D; color:#E6EDF3;
+      }
+      div[data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) {
+        background:#3A2418; border-color:#F08A4B; color:#F08A4B;
+      }
       [data-testid="stSidebarCollapsedControl"] button {
         background:#161B22 !important; color:#E6EDF3 !important; border-color:#30363D !important;
       }
@@ -417,14 +443,15 @@ _PAGES = [
 if _is_manager:
     _PAGES.append(("team", "🔐 Команда"))
 
-# st.tabs виконує тіло всіх вкладок на кожному rerun. Постійний selectbox
-# залишає навігацію доступною навіть коли нативну бокову панель згорнуто,
-# а рендерить і читає з БД лише активну сторінку.
+# st.tabs виконує тіло всіх вкладок на кожному rerun. Горизонтальна
+# навігація виглядає як вкладки, але рендерить і читає з БД лише активну
+# сторінку — і залишається доступною при згорнутій боковій панелі.
 _page_keys = [key for key, _ in _PAGES]
 _page_labels = dict(_PAGES)
-_active_page = st.selectbox(
+_active_page = st.radio(
     "Розділ кабінету", _page_keys,
     format_func=lambda key: _page_labels[key],
+    horizontal=True,
 )
 
 # ============ ОГЛЯД ============
