@@ -1209,6 +1209,75 @@ if _active_page == "students":
         prow = pupils[pupils["pick"]==sel].iloc[0]
         uid = int(prow["id"])
 
+        # ---- лёгкий отчёт для родителей: без оценок и без пересказа личной переписки ----
+        st.markdown("---")
+        st.markdown("#### 📄 Короткий отчёт для батьків")
+        st.caption("Тільки теми, глибина сесій і реакція дитини — без шкільних оцінок "
+                   "і без діагностичних ярликів.")
+        try:
+            _parent_report = q("""
+                SELECT s.id, s.hub, COALESCE(s.subtopic,'') AS subtopic,
+                       s.started_at, s.closed_at, s.current_state,
+                       COALESCE(s.iteration_count,0) AS iterations,
+                       count(m.id) FILTER (WHERE m.role='child') AS child_replies,
+                       COALESCE(string_agg(DISTINCT sf.feedback, ', '), '') AS feedback
+                  FROM sessions s
+                  LEFT JOIN messages m ON m.session_id=s.id
+                  LEFT JOIN session_feedback sf ON sf.session_id=s.id
+                 WHERE s.user_id=%(uid)s
+                 GROUP BY s.id
+                 ORDER BY s.started_at DESC
+                 LIMIT 10
+            """, {"uid": uid})
+            _report_ready = True
+        except Exception:
+            _parent_report = q("""
+                SELECT s.id, s.hub, COALESCE(s.subtopic,'') AS subtopic,
+                       s.started_at, s.closed_at, s.current_state,
+                       COALESCE(s.iteration_count,0) AS iterations,
+                       count(m.id) FILTER (WHERE m.role='child') AS child_replies
+                  FROM sessions s
+                  LEFT JOIN messages m ON m.session_id=s.id
+                 WHERE s.user_id=%(uid)s
+                 GROUP BY s.id
+                 ORDER BY s.started_at DESC
+                 LIMIT 10
+            """, {"uid": uid})
+            _parent_report["feedback"] = ""
+            _report_ready = False
+
+        if _parent_report.empty:
+            st.info("Ще немає завершених сесій для звіту.")
+        else:
+            _topic_rows = []
+            _report_lines = [f"Звіт про навчальні розмови · {prow.get('name') or f'Дитина #{uid}'}", ""]
+            for _, _sr in _parent_report.iterrows():
+                _topic = str(_sr.get("subtopic") or _sr.get("hub") or "Без теми")
+                _status = "завершена" if _sr.get("closed_at") is not None else "триває"
+                _feedback = str(_sr.get("feedback") or "").replace("engaged", "зачепило")
+                _feedback = _feedback.replace("difficult", "було складно").replace("continue", "хоче продовжити")
+                _topic_rows.append({
+                    "Тема": _topic,
+                    "Стан": _status,
+                    "Реплік дитини": int(_sr.get("child_replies") or 0),
+                    "Ітерацій": int(_sr.get("iterations") or 0),
+                    "Реакція": _feedback or "—",
+                })
+                _report_lines.append(
+                    f"• {_topic}: {_status}; {int(_sr.get('child_replies') or 0)} реплік"
+                    + (f"; реакція — {_feedback}" if _feedback else "")
+                )
+            st.dataframe(pd.DataFrame(_topic_rows), use_container_width=True, hide_index=True)
+            st.download_button(
+                "⬇️ Скачать отчёт для родителей",
+                data="\n".join(_report_lines),
+                file_name=f"altavista_parent_report_{uid}.txt",
+                mime="text/plain",
+                key=f"parent_report_{uid}",
+            )
+            if not _report_ready:
+                st.info("Кнопки реакции появятся после применения миграции session_feedback.")
+
         # посилання на телеграм якщо є username
         if new_schema and prow.get("username"):
             st.markdown(f"🔗 Telegram: [@{prow['username']}](https://t.me/{prow['username']})")
