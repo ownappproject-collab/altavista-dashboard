@@ -1219,7 +1219,7 @@ if _active_page == "students":
                 SELECT s.id, s.hub, COALESCE(s.subtopic,'') AS subtopic,
                        s.started_at, s.closed_at, s.current_state,
                        COALESCE(s.iteration_count,0) AS iterations,
-                       count(m.id) FILTER (WHERE m.role='child') AS child_replies,
+                       count(DISTINCT m.id) FILTER (WHERE m.role='child') AS child_replies,
                        COALESCE(string_agg(DISTINCT sf.feedback, ', '), '') AS feedback
                   FROM sessions s
                   LEFT JOIN messages m ON m.session_id=s.id
