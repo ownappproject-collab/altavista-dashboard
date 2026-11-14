@@ -6,8 +6,11 @@
 Вкладки: Огляд · Діалоги (з фільтрами, чат-вид) · Воронка · Якість
 """
 
+import hmac
 import os
 import json
+import time
+from contextlib import contextmanager
 import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 import pandas as pd
@@ -45,6 +48,19 @@ def release_conn(conn):
             conn.close()
         except Exception:
             pass
+
+@contextmanager
+def db_cursor():
+    """Курсор для запису: commit, якщо блок пройшов без помилки; з'єднання
+    повертається в пул завжди, навіть коли запит упав."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        yield cur
+        conn.commit()
+    finally:
+        release_conn(conn)
+
 
 @st.cache_data(ttl=30)
 def q(sql, params=None):
@@ -219,37 +235,58 @@ import hashlib
 def _hash_pw(password: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000).hex()
 
+# Обмеження спроб входу: після 5 невдалих спроб на один email — пауза 15 хвилин.
+LOGIN_MAX_FAILS = 5
+LOGIN_WINDOW_SEC = 15 * 60
+
+
+@st.cache_resource
+def _login_fails():
+    """Невдалі спроби входу в цьому процесі: email -> список часових міток."""
+    return {}
+
+
+def _login_blocked(email: str) -> bool:
+    now = time.time()
+    fails = [ts for ts in _login_fails().get(email, []) if now - ts < LOGIN_WINDOW_SEC]
+    _login_fails()[email] = fails
+    return len(fails) >= LOGIN_MAX_FAILS
+
+
+def _login_failed(email: str):
+    _login_fails().setdefault(email, []).append(time.time())
+
+
 def _check_login(email: str, password: str):
     """Повертає роль користувача або None."""
     try:
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("SELECT pw_salt, pw_hash, role FROM dashboard_users WHERE email=%s",
-                    (email.strip().lower(),))
-        row = cur.fetchone(); release_conn(conn)
+        with db_cursor() as cur:
+            cur.execute("SELECT pw_salt, pw_hash, role FROM dashboard_users WHERE email=%s",
+                        (email.strip().lower(),))
+            row = cur.fetchone()
         if not row:
             return None
         salt, pw_hash, role = row
-        if _hash_pw(password, salt) == pw_hash:
+        if hmac.compare_digest(_hash_pw(password, salt), pw_hash):
             return role
         return None
     except Exception:
         return None
 
-# ---- довга сесія: токен у посиланні + запис у базі (30 днів) ----
+# ---- сесія: токен у посиланні + запис у базі (7 днів) ----
 import secrets as _secrets
-from datetime import datetime as _dt, timedelta as _td
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 
-SESSION_DAYS = 30
+SESSION_DAYS = 7
 
 def _session_create(email, role):
     """Створює токен сесії, повертає його."""
     token = _secrets.token_urlsafe(32)
     try:
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("""INSERT INTO dashboard_sessions (token, email, role, expires_at)
-                       VALUES (%s,%s,%s,%s)""",
-                    (token, email, role, _dt.utcnow() + _td(days=SESSION_DAYS)))
-        conn.commit(); release_conn(conn)
+        with db_cursor() as cur:
+            cur.execute("""INSERT INTO dashboard_sessions (token, email, role, expires_at)
+                           VALUES (%s,%s,%s,%s)""",
+                        (token, email, role, _dt.now(_tz.utc) + _td(days=SESSION_DAYS)))
         return token
     except Exception:
         return None
@@ -259,19 +296,18 @@ def _session_check(token):
     if not token:
         return None
     try:
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("""SELECT email, role FROM dashboard_sessions
-                        WHERE token=%s AND expires_at > now()""", (token,))
-        row = cur.fetchone(); release_conn(conn)
+        with db_cursor() as cur:
+            cur.execute("""SELECT email, role FROM dashboard_sessions
+                            WHERE token=%s AND expires_at > now()""", (token,))
+            row = cur.fetchone()
         return (row[0], row[1]) if row else None
     except Exception:
         return None
 
 def _session_drop(token):
     try:
-        conn = get_conn(); cur = conn.cursor()
-        cur.execute("DELETE FROM dashboard_sessions WHERE token=%s", (token,))
-        conn.commit(); release_conn(conn)
+        with db_cursor() as cur:
+            cur.execute("DELETE FROM dashboard_sessions WHERE token=%s", (token,))
     except Exception:
         pass
 
@@ -318,7 +354,13 @@ if not st.session_state.auth_role:
         password = st.text_input("Пароль", type="password")
         ok = st.form_submit_button("Увійти", use_container_width=True)
     if ok:
+        _login_email = email.strip().lower()
+        if _login_blocked(_login_email):
+            st.error("Забагато невдалих спроб. Спробуйте через 15 хвилин.")
+            st.stop()
         role = _check_login(email, password)
+        if not role:
+            _login_failed(_login_email)
         if role:
             st.session_state.auth_role = role
             st.session_state.auth_email = email.strip().lower()
@@ -897,9 +939,6 @@ if _active_page == "methodology":
     st.caption("Тут ви редагуєте промпти Провідника. Зберегли → бот одразу "
                "відповідає по-новому. Тестуйте в Telegram без перезапуску.")
 
-    def get_conn_w():
-        return get_conn()
-
     # перевірка чи є таблиця
     try:
         meth = q("SELECT state_key, title, system_prompt, sample_phrases, updated_at, updated_by FROM methodology ORDER BY state_key")
@@ -938,19 +977,18 @@ if _active_page == "methodology":
 
         col_save, col_info = st.columns([1,3])
         if col_save.button("💾 Зберегти", type="primary"):
+            _editor = st.session_state.get("auth_email") or "unknown"
             try:
-                conn = get_conn_w()
-                cur = conn.cursor()
-                if new_phrases is not None:
-                    cur.execute("""UPDATE methodology
-                        SET system_prompt=%s, sample_phrases=%s,
-                            updated_at=now(), updated_by='olga'
-                        WHERE state_key=%s""", (new_prompt, new_phrases, key))
-                else:
-                    cur.execute("""UPDATE methodology
-                        SET system_prompt=%s, updated_at=now(), updated_by='olga'
-                        WHERE state_key=%s""", (new_prompt, key))
-                conn.commit(); release_conn(conn)
+                with db_cursor() as cur:
+                    if new_phrases is not None:
+                        cur.execute("""UPDATE methodology
+                            SET system_prompt=%s, sample_phrases=%s,
+                                updated_at=now(), updated_by=%s
+                            WHERE state_key=%s""", (new_prompt, new_phrases, _editor, key))
+                    else:
+                        cur.execute("""UPDATE methodology
+                            SET system_prompt=%s, updated_at=now(), updated_by=%s
+                            WHERE state_key=%s""", (new_prompt, _editor, key))
                 q.clear()  # скинути кеш
                 st.success("✅ Збережено! Бот уже відповідає по-новому. "
                            "Перевірте в Telegram.")
@@ -964,9 +1002,6 @@ if _active_page == "content":
     st.subheader("📝 Контент дерева входу")
     st.caption("Тут ви наповнюєте те, що бот показує дитині: питання діагностики, "
                "хаби, тексти входу, логіку аватара. Бот бере звідси.")
-
-    def conn_w():
-        return get_conn()
 
     # перевірка таблиць
     try:
@@ -990,9 +1025,10 @@ if _active_page == "content":
                 new = st.text_area("", value=row["text"], key=f"txt_{row['key']}",
                                    height=80, label_visibility="collapsed")
                 if st.button("💾 Зберегти", key=f"savetxt_{row['key']}"):
-                    cn=conn_w();cur=cn.cursor()
-                    cur.execute("UPDATE entry_texts SET text=%s,updated_at=now() WHERE key=%s",
-                                (new,row["key"]));cn.commit();release_conn(cn);q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("UPDATE entry_texts SET text=%s,updated_at=now() WHERE key=%s",
+                                    (new,row["key"]))
+                    q.clear()
                     st.success("Збережено!")
                 st.divider()
 
@@ -1015,10 +1051,10 @@ if _active_page == "content":
                                             key=f"q_{row['id']}_o{j}")
                         new_opts.append({"label":lbl,"scores":scores})
                     if st.button("💾 Зберегти питання", key=f"saveq_{row['id']}"):
-                        cn=conn_w();cur=cn.cursor()
-                        cur.execute("UPDATE diag_questions SET text=%s,options=%s,updated_at=now() WHERE id=%s",
-                                    (new_text,json.dumps(new_opts,ensure_ascii=False),int(row["id"])))
-                        cn.commit();release_conn(cn);q.clear()
+                        with db_cursor() as cur:
+                            cur.execute("UPDATE diag_questions SET text=%s,options=%s,updated_at=now() WHERE id=%s",
+                                        (new_text,json.dumps(new_opts,ensure_ascii=False),int(row["id"])))
+                        q.clear()
                         st.success("Збережено!")
 
         # ---- ХАБИ ----
@@ -1047,14 +1083,14 @@ if _active_page == "content":
                                        value="\n".join(subs), key=f"hub_{row['id']}", height=120)
                     if st.button("💾 Зберегти", key=f"savehub_{row['id']}"):
                         new_subs=[s.strip() for s in txt.split("\n") if s.strip()]
-                        cn=conn_w();cur=cn.cursor()
-                        if has_trigger:
-                            cur.execute("UPDATE hubs SET subtopics=%s, trigger_phrase=%s WHERE id=%s",
-                                        (json.dumps(new_subs,ensure_ascii=False), trig.strip(), row["id"]))
-                        else:
-                            cur.execute("UPDATE hubs SET subtopics=%s WHERE id=%s",
-                                        (json.dumps(new_subs,ensure_ascii=False),row["id"]))
-                        cn.commit();release_conn(cn);q.clear()
+                        with db_cursor() as cur:
+                            if has_trigger:
+                                cur.execute("UPDATE hubs SET subtopics=%s, trigger_phrase=%s WHERE id=%s",
+                                            (json.dumps(new_subs,ensure_ascii=False), trig.strip(), row["id"]))
+                            else:
+                                cur.execute("UPDATE hubs SET subtopics=%s WHERE id=%s",
+                                            (json.dumps(new_subs,ensure_ascii=False),row["id"]))
+                        q.clear()
                         st.success("Збережено!")
 
         # ---- АВАТАР ----
@@ -1068,10 +1104,10 @@ if _active_page == "content":
                 wk = st.text_input("Зона росту", value=row["weakness"] or "", key=f"av_wk_{row['profile_type']}")
                 dr = st.text_input("Що рухає (драйвер)", value=row["driver"] or "", key=f"av_dr_{row['profile_type']}")
                 if st.button("💾 Зберегти", key=f"saveav_{row['profile_type']}"):
-                    cn=conn_w();cur=cn.cursor()
-                    cur.execute("""UPDATE avatar_map SET superpower=%s,weakness=%s,driver=%s,updated_at=now()
-                        WHERE profile_type=%s""",(sp,wk,dr,row["profile_type"]))
-                    cn.commit();release_conn(cn);q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("""UPDATE avatar_map SET superpower=%s,weakness=%s,driver=%s,updated_at=now()
+                            WHERE profile_type=%s""",(sp,wk,dr,row["profile_type"]))
+                    q.clear()
                     st.success("Збережено!")
                 st.divider()
 
@@ -1154,9 +1190,6 @@ if _active_page == "help":
 # ============ УЧНІ (управління учнями) ============
 if _active_page == "students":
     st.subheader("👥 Управління учнями")
-
-    def conn_uw():
-        return get_conn()
 
     # тягнемо учнів з ім'ям/ніком (best-effort на випадок старої схеми)
     try:
@@ -1294,16 +1327,16 @@ if _active_page == "students":
                     ["active","test","blocked"],
                     index=["active","test","blocked"].index(prow["status"]))
                 if st.button("Зберегти статус"):
-                    cn=conn_uw();cur=cn.cursor()
-                    cur.execute("UPDATE users SET status=%s WHERE id=%s",(new_status,uid))
-                    cn.commit();release_conn(cn);q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("UPDATE users SET status=%s WHERE id=%s",(new_status,uid))
+                    q.clear()
                     st.success(f"Статус: {new_status}")
             with cb:
                 note = st.text_input("Нотатка:", value=prow.get("note",""))
                 if st.button("Зберегти нотатку"):
-                    cn=conn_uw();cur=cn.cursor()
-                    cur.execute("UPDATE users SET note=%s WHERE id=%s",(note,uid))
-                    cn.commit();release_conn(cn);q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("UPDATE users SET note=%s WHERE id=%s",(note,uid))
+                    q.clear()
                     st.success("Нотатку збережено")
 
         # видалення з підтвердженням
@@ -1311,9 +1344,9 @@ if _active_page == "students":
             st.markdown("**🗑 Видалити назавжди**")
             confirm = st.checkbox("Я впевнена, видалити всі дані цього учня")
             if st.button("🗑 Видалити", type="secondary", disabled=not confirm):
-                cn=conn_uw();cur=cn.cursor()
-                cur.execute("DELETE FROM users WHERE id=%s",(uid,))  # каскад знесе сесії+повідомлення
-                cn.commit();release_conn(cn);q.clear()
+                with db_cursor() as cur:
+                    cur.execute("DELETE FROM users WHERE id=%s",(uid,))  # каскад знесе сесії+повідомлення
+                q.clear()
                 st.success("Учня видалено (разом з діалогами).")
                 st.rerun()
 
@@ -1352,11 +1385,11 @@ if _active_page == "team":
                     salt = _secrets.token_hex(16)
                     pw_hash = _hash_pw(new_pw, salt)
                     try:
-                        cn = conn_w(); cur = cn.cursor()
-                        cur.execute("""INSERT INTO dashboard_users (email, pw_salt, pw_hash, role)
-                                       VALUES (%s,%s,%s,%s)""",
-                                    (new_email.strip().lower(), salt, pw_hash, new_role))
-                        cn.commit(); release_conn(cn); q.clear()
+                        with db_cursor() as cur:
+                            cur.execute("""INSERT INTO dashboard_users (email, pw_salt, pw_hash, role)
+                                           VALUES (%s,%s,%s,%s)""",
+                                        (new_email.strip().lower(), salt, pw_hash, new_role))
+                        q.clear()
                         st.success(f"✅ {new_email.strip().lower()} доданий ({new_role})")
                         st.rerun()
                     except Exception as e:
@@ -1375,10 +1408,10 @@ if _active_page == "team":
                     st.error("Пароль від 8 символів.")
                 else:
                     salt = _secrets.token_hex(16)
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("UPDATE dashboard_users SET pw_salt=%s, pw_hash=%s WHERE email=%s",
-                                (salt, _hash_pw(pw2, salt), sel_email))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("UPDATE dashboard_users SET pw_salt=%s, pw_hash=%s WHERE email=%s",
+                                    (salt, _hash_pw(pw2, salt), sel_email))
+                    q.clear()
                     st.success(f"✅ Пароль для {sel_email} змінено")
 
             st.markdown("")
@@ -1387,9 +1420,9 @@ if _active_page == "team":
             else:
                 confirm_del = st.checkbox(f"Підтверджую видалення {sel_email}")
                 if st.button("🗑 Видалити учасника", disabled=not confirm_del):
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("DELETE FROM dashboard_users WHERE email=%s", (sel_email,))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("DELETE FROM dashboard_users WHERE email=%s", (sel_email,))
+                    q.clear()
                     st.success(f"🗑 {sel_email} видалений")
                     st.rerun()
 
@@ -1789,12 +1822,12 @@ if _active_page == "methodology":
         _pick = st.selectbox("Модель:", _keys, index=_idx,
                              format_func=lambda k: _MODELS[k], key="ai_model_pick")
         if st.button("Зберегти модель"):
-            cn = conn_w(); cur = cn.cursor()
-            cur.execute("""INSERT INTO app_settings (key, value, updated_at)
-                           VALUES ('ai_model', %s, now())
-                           ON CONFLICT (key) DO UPDATE
-                             SET value=EXCLUDED.value, updated_at=now()""", (_pick,))
-            cn.commit(); release_conn(cn); q.clear()
+            with db_cursor() as cur:
+                cur.execute("""INSERT INTO app_settings (key, value, updated_at)
+                               VALUES ('ai_model', %s, now())
+                               ON CONFLICT (key) DO UPDATE
+                                 SET value=EXCLUDED.value, updated_at=now()""", (_pick,))
+            q.clear()
             st.success(f"Збережено: {_MODELS[_pick]}")
 
         st.caption("Ціни за 1 млн токенів (вхід/вихід). Для звичайних діалогів з дітьми "
@@ -1836,10 +1869,10 @@ if _active_page == "methodology":
                 _txt = st.text_area("Правило:", value=r["rule"],
                                     key=f"tone_{r['id']}", height=160)
                 if st.button("Зберегти", key=f"tone_save_{r['id']}"):
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("UPDATE tone_rules SET rule=%s, updated_at=now() "
-                                "WHERE id=%s", (_txt.strip(), int(r["id"])))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("UPDATE tone_rules SET rule=%s, updated_at=now() "
+                                    "WHERE id=%s", (_txt.strip(), int(r["id"])))
+                    q.clear()
                     st.success("Збережено — бот вже говорить по-новому")
 
 # ============ ТЕСТИ ЯКОСТІ ============
@@ -1930,11 +1963,11 @@ if _active_page == "eval":
             _child = st.text_area("Репліка дитини", height=80)
             if st.form_submit_button("Додати"):
                 if _title.strip() and _child.strip():
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("""INSERT INTO eval_cases (title, note, context, child_text)
-                                   VALUES (%s,%s,%s,%s)""",
-                                (_title.strip(), _note.strip(), _ctx.strip(), _child.strip()))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("""INSERT INTO eval_cases (title, note, context, child_text)
+                                       VALUES (%s,%s,%s,%s)""",
+                                    (_title.strip(), _note.strip(), _ctx.strip(), _child.strip()))
+                    q.clear()
                     st.success("Додано")
                     st.rerun()
                 else:
@@ -1964,10 +1997,10 @@ if _active_page == "eval":
                            "(8 ситуацій ≈ 16 викликів). Запускайте після зміни моделі "
                            "чи промптів, а не після кожної дрібної правки.")
                 if st.button("Запустити прогін", type="primary"):
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("INSERT INTO eval_queue (requested_by) VALUES (%s)",
-                                (st.session_state.get("auth_email", "—"),))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("INSERT INTO eval_queue (requested_by) VALUES (%s)",
+                                    (st.session_state.get("auth_email", "—"),))
+                    q.clear()
                     st.success("Поставлено в чергу — результат з'явиться за 1-2 хвилини")
                     st.rerun()
 
@@ -2024,10 +2057,10 @@ if _active_page == "content":
             hc1, hc2, hc3 = st.columns([1, 1, 1])
             with hc1:
                 if st.button("Зберегти зміни", key="hook_save"):
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("UPDATE entry_hooks SET hook=%s, source='manual' "
-                                "WHERE id=%s", (_txt.strip(), int(_pick)))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("UPDATE entry_hooks SET hook=%s, source='manual' "
+                                    "WHERE id=%s", (_txt.strip(), int(_pick)))
+                    q.clear()
                     st.success("Збережено")
             with hc2:
                 # згенеровані ШІ гачки можна підтвердити як еталонні
@@ -2035,20 +2068,20 @@ if _active_page == "content":
                     if st.button("✓ Це вдалий", key="hook_approve",
                                  help="Зробити еталонним: більше не перегенерується "
                                       "і піде у приклади для ШІ"):
-                        cn = conn_w(); cur = cn.cursor()
-                        cur.execute("UPDATE entry_hooks SET source='manual' "
-                                    "WHERE id=%s", (int(_pick),))
-                        cn.commit(); release_conn(cn); q.clear()
+                        with db_cursor() as cur:
+                            cur.execute("UPDATE entry_hooks SET source='manual' "
+                                        "WHERE id=%s", (int(_pick),))
+                        q.clear()
                         st.success("Тепер це еталон")
                         st.rerun()
                 else:
                     st.caption("Еталонний")
             with hc3:
                 if st.button("Видалити", key="hook_del"):
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("UPDATE entry_hooks SET active=false WHERE id=%s",
-                                (int(_pick),))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("UPDATE entry_hooks SET active=false WHERE id=%s",
+                                    (int(_pick),))
+                    q.clear()
                     st.success("Прибрано")
                     st.rerun()
 
@@ -2070,15 +2103,15 @@ if _active_page == "content":
                        "без слів «урок», «тема», без оцінних прикметників.")
             if st.form_submit_button("Додати"):
                 if _hub.strip() and _hook_txt.strip():
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("""INSERT INTO entry_hooks
-                                     (hub, subtopic, learning_type, hook, source)
-                                   VALUES (%s,%s,%s,%s,'manual')
-                                   ON CONFLICT (hub, subtopic, learning_type)
-                                   DO UPDATE SET hook=EXCLUDED.hook,
-                                                 source='manual', active=true""",
-                                (_hub.strip(), _sub.strip(), _lt, _hook_txt.strip()))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("""INSERT INTO entry_hooks
+                                         (hub, subtopic, learning_type, hook, source)
+                                       VALUES (%s,%s,%s,%s,'manual')
+                                       ON CONFLICT (hub, subtopic, learning_type)
+                                       DO UPDATE SET hook=EXCLUDED.hook,
+                                                     source='manual', active=true""",
+                                    (_hub.strip(), _sub.strip(), _lt, _hook_txt.strip()))
+                    q.clear()
                     st.success("Додано")
                     st.rerun()
                 else:
@@ -2114,13 +2147,13 @@ if _active_page == "content":
                 "Базові принципи:", value=_pcur["topic_principles"], height=170,
                 key=f"principles_text_{_p_pick}")
             if st.button("Зберегти принципи", key="principles_save"):
-                cn = conn_w(); cur = cn.cursor()
-                cur.execute("""UPDATE entry_hooks
-                                  SET topic_principles=%s, updated_at=now()
-                                WHERE active AND hub=%s
-                                  AND COALESCE(subtopic, '')=%s""",
-                            (_ptext.strip(), _pcur["hub"], _pcur["subtopic"] or ""))
-                cn.commit(); release_conn(cn); q.clear()
+                with db_cursor() as cur:
+                    cur.execute("""UPDATE entry_hooks
+                                      SET topic_principles=%s, updated_at=now()
+                                    WHERE active AND hub=%s
+                                      AND COALESCE(subtopic, '')=%s""",
+                                (_ptext.strip(), _pcur["hub"], _pcur["subtopic"] or ""))
+                q.clear()
                 st.success("Принципи збережено")
                 st.rerun()
 
@@ -2135,16 +2168,16 @@ if _active_page == "content":
                                   key="principle_new_text")
             if st.form_submit_button("Додати принципи"):
                 if _p_hub.strip() and _p_new.strip():
-                    cn = conn_w(); cur = cn.cursor()
-                    cur.execute("""INSERT INTO entry_hooks
-                                     (hub, subtopic, learning_type, hook, source,
-                                      topic_principles)
-                                   VALUES (%s,%s,'','', 'principle', %s)
-                                   ON CONFLICT (hub, subtopic, learning_type)
-                                   DO UPDATE SET topic_principles=EXCLUDED.topic_principles,
-                                                 active=true, updated_at=now()""",
-                                (_p_hub.strip(), _p_sub.strip(), _p_new.strip()))
-                    cn.commit(); release_conn(cn); q.clear()
+                    with db_cursor() as cur:
+                        cur.execute("""INSERT INTO entry_hooks
+                                         (hub, subtopic, learning_type, hook, source,
+                                          topic_principles)
+                                       VALUES (%s,%s,'','', 'principle', %s)
+                                       ON CONFLICT (hub, subtopic, learning_type)
+                                       DO UPDATE SET topic_principles=EXCLUDED.topic_principles,
+                                                     active=true, updated_at=now()""",
+                                    (_p_hub.strip(), _p_sub.strip(), _p_new.strip()))
+                    q.clear()
                     st.success("Принципи додано")
                     st.rerun()
                 else:
